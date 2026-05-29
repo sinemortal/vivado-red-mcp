@@ -2,6 +2,10 @@
 # Red Pitaya STEMlab 125-14 — minimal LED-only constraints
 #
 # Target: Xilinx Zynq xc7z010clg400-1
+# Pin assignments derived from RedPitaya/RedPitaya-FPGA, sdc/red_pitaya.xdc
+#   (Matej Oblak, 2014), 3-clause BSD — see THIRD-PARTY-NOTICES.md:
+#   Copyright (c) 2014, Red Pitaya, d.o.o.  All rights reserved.
+#
 # Use case: hello-world / LED-blinker projects that only need the 125 MHz
 #           differential clock input and the 8 user LEDs.
 #

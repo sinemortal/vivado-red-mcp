@@ -258,7 +258,9 @@ Contributions welcome! Please feel free to submit issues and pull requests.
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License - see [`LICENSE`](LICENSE) for details. Bundled third-party
+material (the Red Pitaya board XDC files, 3-clause BSD) is documented in
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
 
 ## Acknowledgments
 
