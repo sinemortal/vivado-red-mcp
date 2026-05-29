@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  registry-check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (editable)
+        run: pip install -e .
+      - name: Tool registry consistency check
+        # No Vivado needed: the session is spawned lazily, so importing the
+        # registry only builds the TOOLS/HANDLERS tables. This catches schema
+        # drift (a declared tool with no handler, or vice versa) and import
+        # errors on every push.
+        run: |
+          python -c "from vivado_mcp.tools import ALL_TOOLS, ALL_HANDLERS; \
+            assert {t.name for t in ALL_TOOLS} == set(ALL_HANDLERS), 'registry drift'; \
+            print(f'{len(ALL_TOOLS)} tools OK')"

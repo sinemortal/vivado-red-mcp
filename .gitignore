@@ -1,0 +1,51 @@
+# Build outputs / test artifacts
+test_runs/
+captures/
+*.bit
+*.bit.bin
+*.dcp
+*.ltx
+
+# Vivado scratch
+.Xil/
+*.jou
+*.log
+*.str
+*.dmp
+vivado_projects/
+.srcs/
+.runs/
+.gen/
+.cache/
+.hw/
+.sim/
+.ip_user_files/
+hs_err_pid*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+.venv/
+venv/
+.env
+.pytest_cache/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local Claude state
+.claude/
+
+# Stray file from a bad shell redirect
+C:Users*

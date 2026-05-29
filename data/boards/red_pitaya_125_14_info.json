@@ -1,0 +1,38 @@
+{
+  "board": "red_pitaya_125_14",
+  "display_name": "Red Pitaya STEMlab 125-14",
+  "part": "xc7z010clg400-1",
+  "family": "Zynq-7000",
+  "board_part": null,
+  "led_count": 8,
+  "adc_clk_mhz": 125,
+  "adc_channels": 2,
+  "adc_resolution_bits": 14,
+  "dac_channels": 2,
+  "dac_resolution_bits": 14,
+  "xdc_variants": {
+    "leds_min": {
+      "file": "red_pitaya_125_14_leds_min.xdc",
+      "description": "Minimal: 125 MHz differential clock + 8 LEDs only. Use for LED-blinker and other simple RTL hello-worlds.",
+      "expected_top_ports": ["adc_clk_p_i", "adc_clk_n_i", "led_o[7:0]"]
+    },
+    "full": {
+      "file": "red_pitaya_125_14_full.xdc",
+      "description": "Full peripheral pinout: ADC, DAC, PWM DAC, LEDs, expansion E1/E2, daisy-chain, XADC. User RTL may declare any subset of top-level ports; unused ones produce harmless 'no load' warnings.",
+      "expected_top_ports": [
+        "adc_clk_i[1:0]", "adc_clk_o[1:0]", "adc_cdcs_o",
+        "adc_dat_i[1:0][13:0]",
+        "dac_dat_o[13:0]", "dac_wrt_o", "dac_sel_o", "dac_clk_o", "dac_rst_o",
+        "dac_pwm_o[3:0]",
+        "led_o[7:0]",
+        "exp_p_io[7:0]", "exp_n_io[7:0]",
+        "daisy_p_o[1:0]", "daisy_n_o[1:0]", "daisy_p_i[1:0]", "daisy_n_i[1:0]",
+        "vinp_i[4:0]", "vinn_i[4:0]"
+      ]
+    }
+  },
+  "default_xdc_variant": "leds_min",
+  "default_synth_flags": "-flatten_hierarchy none -bufg 16 -keep_equivalent_registers",
+  "bitstream_deploy_path": "/dev/xdevcfg",
+  "source_attribution": "RedPitaya/RedPitaya-FPGA sdc/red_pitaya.xdc (Matej Oblak, 2014)"
+}
