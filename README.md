@@ -44,7 +44,7 @@ on-board deployment), not just generic Vivado control.
 ### From GitHub
 
 ```bash
-git clone https://github.com/sinemortal/vivado-mcp.git
+git clone https://github.com/sinemola/vivado-mcp.git
 cd vivado-mcp
 pip install -e .
 ```
