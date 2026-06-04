@@ -18,6 +18,9 @@ Entry point: `python -m vivado_mcp` (or `vivado-mcp` after pip install).
 from __future__ import annotations
 
 import json
+import os
+import sys
+import threading
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -56,7 +59,39 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
 
 
+def _start_autofetch_redpitaya() -> None:
+    """On server start, download the RedPitaya-FPGA repo into the cwd if absent.
+
+    Runs in a daemon thread so a large/slow download never blocks the MCP stdio
+    handshake. All logging goes to stderr — stdout is reserved for JSON-RPC.
+    Disable with the env var VIVADO_MCP_NO_AUTOFETCH.
+    """
+    if os.environ.get("VIVADO_MCP_NO_AUTOFETCH"):
+        return
+
+    from .tools.redpitaya_repo import autofetch_redpitaya_repo
+
+    def _run() -> None:
+        try:
+            r = autofetch_redpitaya_repo()
+            if r and r.get("success"):
+                print(
+                    f"[vivado-mcp] RedPitaya-FPGA: {r.get('status')} -> {r.get('repo_path')}",
+                    file=sys.stderr, flush=True,
+                )
+            elif r:
+                print(
+                    f"[vivado-mcp] RedPitaya-FPGA autofetch failed: {r.get('error')}",
+                    file=sys.stderr, flush=True,
+                )
+        except Exception as ex:  # noqa: BLE001 - never crash the server thread
+            print(f"[vivado-mcp] RedPitaya-FPGA autofetch error: {ex}", file=sys.stderr, flush=True)
+
+    threading.Thread(target=_run, name="rp-autofetch", daemon=True).start()
+
+
 async def main():
+    _start_autofetch_redpitaya()
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,

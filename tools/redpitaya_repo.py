@@ -7,6 +7,7 @@ Zynq PS7 from scratch. The RedPitaya-FPGA repo ships `prj/<name>/ip/systemZ10.tc
 guaranteed-good.
 
 Flow (see data/docs/redpitaya_ps_pl_flow.md):
+  rp_fetch_repo       -> download the RedPitaya-FPGA repo from GitHub (no git)
   rp_setup_workspace  -> isolated copy of the repo
   rp_list_projects    -> enumerate prj/* (v0.94, barebones, axi4lite, ...)
   rp_build_project    -> run red_pitaya_vivado_project_Z10.tcl + synth/impl/bitstream
@@ -18,6 +19,9 @@ Distinct from `create_redpitaya_project_rtl` (pure RTL, no PS) in tools/redpitay
 from __future__ import annotations
 
 import shutil
+import tempfile
+import urllib.request
+import zipfile
 from pathlib import Path
 
 from mcp.types import Tool
@@ -33,6 +37,41 @@ _COPY_IGNORE = shutil.ignore_patterns(
 )
 
 TOOLS = [
+    Tool(
+        name="rp_fetch_repo",
+        description=(
+            "Download the RedPitaya-FPGA repo from GitHub as a source zip and "
+            "extract it (no git required, stdlib only). Returns repo_path to feed "
+            "into rp_setup_workspace. Idempotent — pass force=true to redownload. "
+            "No Vivado session required."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "dest_path": {
+                    "type": "string",
+                    "description": "Directory to extract into. Default: current working directory.",
+                },
+                "ref": {
+                    "type": "string",
+                    "description": "Branch or tag to fetch (default: master). Extracted dir is RedPitaya-FPGA-<ref>.",
+                },
+                "url": {
+                    "type": "string",
+                    "description": "Override the full zip URL (e.g. a tag or a fork). If set, ref is used only for the expected dir name.",
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": "If true, delete an existing extracted dir and redownload (default: false).",
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Download timeout in seconds (default: 600).",
+                },
+            },
+            "required": [],
+        },
+    ),
     Tool(
         name="rp_setup_workspace",
         description=(
@@ -168,6 +207,105 @@ def _project_dirs(root: Path) -> list[Path]:
 # ---------------------------------------------------------------------------
 # handlers
 # ---------------------------------------------------------------------------
+
+_RP_REPO_OWNER = "RedPitaya"
+_RP_REPO_NAME = "RedPitaya-FPGA"
+
+
+def _rp_fetch_repo(session, args):
+    ref = args.get("ref", "master")
+    dest = Path(args.get("dest_path") or Path.cwd())
+    force = args.get("force", False)
+    timeout = args.get("timeout", 600)
+    url = args.get("url") or (
+        f"https://github.com/{_RP_REPO_OWNER}/{_RP_REPO_NAME}/archive/refs/heads/{ref}.zip"
+    )
+
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+    except OSError as ex:
+        return err(f"cannot create dest_path {dest}: {ex}")
+
+    # GitHub source zips extract to <repo>-<ref>.
+    expected = dest / f"{_RP_REPO_NAME}-{ref}"
+    if expected.exists():
+        if not force:
+            if _is_repo_root(expected):
+                return {
+                    "success": True,
+                    "status": "already_exists",
+                    "repo_path": str(expected),
+                    "message": "Already downloaded. Pass force=true to redownload.",
+                    "projects": [p.name for p in _project_dirs(expected)],
+                    "next": f"rp_setup_workspace repo_path={expected}",
+                }
+            return err(
+                f"{expected} exists but is not a valid RedPitaya repo root; "
+                f"pass force=true to redownload."
+            )
+        shutil.rmtree(expected)
+
+    with tempfile.TemporaryDirectory() as td:
+        zpath = Path(td) / "repo.zip"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "vivado-mcp"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp, open(zpath, "wb") as f:
+                shutil.copyfileobj(resp, f)
+        except Exception as ex:  # noqa: BLE001 - urllib raises a wide tree
+            return err(f"download failed: {ex}", url=url)
+
+        size_mb = round(zpath.stat().st_size / 1e6, 1)
+        try:
+            with zipfile.ZipFile(zpath) as zf:
+                names = zf.namelist()
+                top = names[0].split("/")[0] if names else ""
+                zf.extractall(dest)
+        except zipfile.BadZipFile:
+            return err(
+                "downloaded file is not a valid zip (check ref/url — a bad branch "
+                "name returns an HTML 404 page, not a zip)",
+                url=url,
+            )
+        except OSError as ex:
+            return err(f"extraction failed: {ex}")
+
+    repo_root = (dest / top) if top else expected
+    if not _is_repo_root(repo_root):
+        return err(
+            f"extracted tree at {repo_root} is not a RedPitaya repo root "
+            f"(missing prj/ or red_pitaya_vivado_project_*.tcl)",
+            extracted_to=str(repo_root),
+        )
+
+    return {
+        "success": True,
+        "status": "downloaded",
+        "repo_path": str(repo_root),
+        "ref": ref,
+        "url": url,
+        "download_mb": size_mb,
+        "projects": [p.name for p in _project_dirs(repo_root)],
+        "next": f"rp_setup_workspace repo_path={repo_root}",
+    }
+
+
+def autofetch_redpitaya_repo(dest=None, ref="master"):
+    """Best-effort startup hook: ensure RedPitaya-FPGA-<ref> exists under dest.
+
+    Called by the MCP server on first start (see server.py). `dest` defaults to
+    the current working directory. If the repo is already present it is a no-op.
+    Reuses the rp_fetch_repo handler; never raises — a failed/offline fetch must
+    not stop the server from booting.
+    """
+    dest = Path(dest or Path.cwd())
+    expected = dest / f"{_RP_REPO_NAME}-{ref}"
+    if _is_repo_root(expected):
+        return {"success": True, "status": "already_exists", "repo_path": str(expected)}
+    try:
+        return _rp_fetch_repo(None, {"dest_path": str(dest), "ref": ref})
+    except Exception as ex:  # noqa: BLE001 - startup must survive any fetch error
+        return err(f"autofetch error: {ex}")
+
 
 def _rp_setup_workspace(session, args):
     if (e := require_args(args, "repo_path")):
@@ -431,6 +569,7 @@ def _rp_build_project(session, args):
 
 
 HANDLERS = {
+    "rp_fetch_repo": _rp_fetch_repo,
     "rp_setup_workspace": _rp_setup_workspace,
     "rp_list_projects": _rp_list_projects,
     "rp_workspace_info": _rp_workspace_info,

@@ -201,6 +201,10 @@ Bundled data under `data/boards/`:
 Build full Processing System + Programmable Logic designs by reusing the canonical
 RedPitaya-FPGA backbone (the `systemZ10.tcl` PS7 block design) instead of
 reconfiguring the Zynq PS7 from scratch. See `get_vivado_doc redpitaya_ps_pl_flow`.
+- `rp_fetch_repo` - Download the RedPitaya-FPGA repo from GitHub (source zip,
+  stdlib only, no `git`). Also runs automatically on server startup into the
+  process working directory when the repo is absent — disable that with the
+  `VIVADO_MCP_NO_AUTOFETCH` environment variable.
 - `rp_setup_workspace` - Copy a RedPitaya-FPGA repo into an isolated build workspace
 - `rp_list_projects` - List `prj/*` projects, flag Z10-capable ones
 - `rp_workspace_info` - Report workspace state and which projects are built
