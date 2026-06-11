@@ -510,6 +510,17 @@ class VivadoSession:
 
                     clean_lines.append(stripped)
 
+                if not found_command:
+                    # The echoed command was never matched — this happens when
+                    # the command is longer than the pty width (200 cols) and
+                    # the echo wraps across lines. Fall back to the full raw
+                    # output (minus prompts/blanks) rather than silently
+                    # returning nothing, which would also swallow real errors.
+                    clean_lines = [
+                        s for s in (l.strip() for l in lines)
+                        if s and not s.startswith('Vivado%')
+                    ]
+
                 output = '\n'.join(clean_lines).strip()
 
                 elapsed = (time.time() - start_time) * 1000
@@ -551,7 +562,7 @@ class VivadoSession:
                 self.stats["errors"] += 1
                 return CommandResult(
                     command=command,
-                    output=f"Command timed out after {self.timeout}s",
+                    output=f"Command timed out after {effective_timeout}s",
                     return_value="1",
                     success=False,
                     elapsed_ms=elapsed

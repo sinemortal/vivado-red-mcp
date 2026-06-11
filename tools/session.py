@@ -53,8 +53,8 @@ TOOLS = [
     Tool(
         name="get_host_status",
         description=(
-            "Get host hostname, free memory, and session state. If free memory "
-            "is below 64GB, switch to a beefier host for large designs."
+            "Get host hostname, free memory, and session state. Useful to check "
+            "there is enough RAM before launching synthesis/implementation."
         ),
         inputSchema={"type": "object", "properties": {}, "required": []},
     ),
@@ -117,8 +117,9 @@ def _get_host_status(session, args):
         "memory_percent_used": mem.percent,
         "vivado_session_active": session.is_running,
         "suggestion": (
-            f"Low memory ({free_gb:.1f}GB free). Use vivado-snoke instead."
-            if free_gb < 64
+            f"Low memory ({free_gb:.1f}GB free). Vivado synthesis/implementation "
+            f"may swap or fail; close other applications or use a host with more RAM."
+            if free_gb < 8
             else None
         ),
     }

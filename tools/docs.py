@@ -75,11 +75,18 @@ def _list_vivado_docs(session, args):
 def _get_vivado_doc(session, args):
     topic = args.get("topic", "")
     version = args.get("version", "2020.1")
+    # Validate against the whitelist — also prevents path traversal via
+    # topic values like "../../something".
+    if topic not in KNOWN_TOPICS:
+        return {
+            "success": False,
+            "error": f"Unknown topic '{topic}'. Known: {KNOWN_TOPICS}",
+        }
     path = DOCS_DIR / f"{topic}.md"
     if not path.exists():
         return {
             "success": False,
-            "error": f"Unknown topic '{topic}'. Known: {KNOWN_TOPICS}",
+            "error": f"Topic '{topic}' is known but its file is missing: {path}",
         }
     try:
         content = path.read_text(encoding="utf-8")

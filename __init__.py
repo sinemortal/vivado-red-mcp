@@ -49,14 +49,13 @@ Requirements:
 
 Author: Created with Claude (Anthropic)
 License: MIT
-Version: 0.1.0
 """
 
 import asyncio
 from .server import main as _async_main
 
 # Package version
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 
 def main():

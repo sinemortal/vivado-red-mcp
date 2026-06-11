@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vivado-mcp"
-version = "0.3.0"
+version = "0.3.1"
 description = "MCP server for AMD/Xilinx Vivado + Red Pitaya FPGA development - enables AI assistants to drive synthesis, implementation, and on-board deployment"
 readme = "README.md"
 license = {text = "MIT"}
