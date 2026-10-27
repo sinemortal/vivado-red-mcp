@@ -9,7 +9,12 @@ from pathlib import Path
 from mcp.types import Tool
 
 from ..boards import DEFAULT_PART, list_bundled_boards, load_board_info, resolve_board_xdc
-from ..parsers import truncate_response, verify_run_status
+from ..parsers import (
+    parse_timing_summary,
+    parse_utilization,
+    truncate_response,
+    verify_run_status,
+)
 from ._common import err, require_args, require_project_open
 
 TOOLS = [
@@ -394,6 +399,10 @@ def _create_redpitaya_project_rtl(session, args):
         "xdc_variant": xdc_variant,
         "xdc_files": xdc_paths,
         "elapsed_seconds": round(elapsed_s, 1),
+        # The raw report opens with ~2 KB of timer settings, so the truncated
+        # text alone rarely reaches the WNS/WHS table: return parsed values too.
+        "timing_summary": {k: v for k, v in parse_timing_summary(timing.output).items() if k != "raw"},
+        "utilization": {k: v for k, v in parse_utilization(util.output).items() if k != "raw"},
         "timing_summary_raw": truncate_response(timing.output, 2000),
         "utilization_raw": truncate_response(util.output, 2000),
         "deploy_hint": (

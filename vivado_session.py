@@ -47,6 +47,7 @@ Author: Created with Claude (Anthropic)
 License: MIT
 """
 
+import os
 import sys
 import shutil
 
@@ -278,6 +279,23 @@ class VivadoSession:
             "command_history": []        # Last 100 commands (for debugging)
         }
 
+    def _startup_output_tail(self, max_chars: int = 2000) -> str:
+        """Return Vivado's last startup output (e.g. a license error) for error messages.
+
+        Also reaps the half-started child so a retry starts from a clean slate.
+        """
+        before = ""
+        if self.child is not None:
+            before = (getattr(self.child, "before", "") or "").strip()
+            try:
+                self.child.close(force=True)
+            except Exception:
+                pass
+            self.child = None
+        if not before:
+            return ""
+        return "\nVivado output:\n" + before[-max_chars:]
+
     def start(self) -> CommandResult:
         """
         Start the Vivado TCL session.
@@ -328,12 +346,20 @@ class VivadoSession:
                 # wexpect does not support echo=False; echoed commands are
                 # stripped downstream in run_tcl(). codepage=65001 forces
                 # UTF-8 on the child console to avoid cp1252 mojibake.
+                #
+                # Drop NoDefaultCurrentDirectoryInExePath (set by Claude Code
+                # for its children): with it, Vivado cannot spawn the scripts
+                # it generates by bare name (e.g. xsim's compile.bat fails
+                # with "Spawn failed: file not found").
+                child_env = {k: v for k, v in os.environ.items()
+                             if k.lower() != "nodefaultcurrentdirectoryinexepath"}
                 self.child = pexpect.spawn(
                     executable,
                     spawn_args,
                     encoding="utf-8",
                     timeout=self.timeout,
                     codepage=65001,
+                    env=child_env,
                 )
             else:
                 self.child = pexpect.spawn(
@@ -349,7 +375,7 @@ class VivadoSession:
             # directly for the Vivado% prompt if it never appears.
             try:
                 self.child.expect("Start of session", timeout=120)
-            except (pexpect.TIMEOUT, pexpect.EOF):
+            except pexpect.TIMEOUT:
                 if not _IS_WINDOWS:
                     raise
                 # Fall through: the prompt handshake below will confirm readiness.
@@ -388,18 +414,20 @@ class VivadoSession:
             elapsed = (time.time() - start_time) * 1000
             return CommandResult(
                 command="start",
-                output="Failed to start Vivado: Timeout waiting for startup",
+                output="Failed to start Vivado: Timeout waiting for startup"
+                       + self._startup_output_tail(),
                 return_value="1",
                 success=False,
                 elapsed_ms=elapsed
             )
         except Exception as e:
-            # Other errors (file not found, permissions, etc.)
+            # Vivado exited during startup (missing license, bad install, ...)
+            # or could not be spawned at all (file not found, permissions).
             self.is_running = False
             elapsed = (time.time() - start_time) * 1000
             return CommandResult(
                 command="start",
-                output=f"Failed to start Vivado: {str(e)}",
+                output=f"Failed to start Vivado: {str(e)}" + self._startup_output_tail(),
                 return_value="1",
                 success=False,
                 elapsed_ms=elapsed

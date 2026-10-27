@@ -78,26 +78,43 @@ def parse_timing_summary(output: str) -> dict:
         "raw": output,
     }
 
-    wns_match = re.search(r"WNS\(ns\)\s*:\s*([-\d.]+)", output)
-    tns_match = re.search(r"TNS\(ns\)\s*:\s*([-\d.]+)", output)
-    if wns_match:
-        result["wns"] = float(wns_match.group(1))
-    if tns_match:
-        result["tns"] = float(tns_match.group(1))
+    # report_timing_summary prints the "Design Timing Summary" as a table:
+    #     WNS(ns)  TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints  WHS(ns) ...
+    #     -------  -------  ---------------------  -------------------  ------- ...
+    #       5.493    0.000                      0                   26    0.252 ...
+    # (12 columns: WNS TNS fail total | WHS THS fail total | WPWS TPWS fail total)
+    # A group with no paths prints NA (e.g. a PS-only design has only pulse
+    # width checks); those values stay None.
+    table = re.search(r"^\s*WNS\(ns\)\s+TNS\(ns\).*\n\s*-[-\s]*\n\s*(.+)$", output, re.MULTILINE)
+    if table:
+        cols = table.group(1).split()
+        if len(cols) >= 12:
+            def num(i, cast=float):
+                try:
+                    return cast(cols[i])
+                except ValueError:  # "NA"
+                    return None
+            result["wns"], result["tns"] = num(0), num(1)
+            result["whs"], result["ths"] = num(4), num(5)
+            result["wpws"], result["tpws"] = num(8), num(9)
+            result["failing_endpoints"] = sum(
+                n for n in (num(2, int), num(6, int), num(10, int)) if n
+            )
+    else:
+        # Fallback for "WNS(ns) : x" style output.
+        for key in ("wns", "tns", "whs", "ths", "wpws", "tpws"):
+            m = re.search(rf"{key.upper()}\(ns\)\s*:\s*([-\d.]+)", output)
+            if m:
+                result[key] = float(m.group(1))
+        fail_match = re.search(r"(\d+)\s+failing\s+endpoint", output, re.IGNORECASE)
+        if fail_match:
+            result["failing_endpoints"] = int(fail_match.group(1))
 
-    whs_match = re.search(r"WHS\(ns\)\s*:\s*([-\d.]+)", output)
-    ths_match = re.search(r"THS\(ns\)\s*:\s*([-\d.]+)", output)
-    if whs_match:
-        result["whs"] = float(whs_match.group(1))
-    if ths_match:
-        result["ths"] = float(ths_match.group(1))
-
-    fail_match = re.search(r"(\d+)\s+failing\s+endpoint", output, re.IGNORECASE)
-    if fail_match:
-        result["failing_endpoints"] = int(fail_match.group(1))
-
-    if result["wns"] is not None and result["whs"] is not None:
-        result["met"] = result["wns"] >= 0 and result["whs"] >= 0
+    # Met = every reported slack is non-negative. A fully unconstrained design
+    # (all NA) is not "met": there is nothing checking it.
+    slacks = [result[k] for k in ("wns", "whs", "wpws") if result[k] is not None]
+    if slacks:
+        result["met"] = all(s >= 0 for s in slacks)
 
     return result
 
@@ -112,12 +129,17 @@ def parse_utilization(output: str) -> dict:
         "raw": output,
     }
 
+    # Row layout: | Site Type | Used | Fixed | [Prohibited] | Available | Util% |
+    # "Prohibited" only exists in newer releases (absent in 2020.1); Util% can
+    # be "<0.01" for tiny designs.
+    num = r"(\d+(?:\.\d+)?)"
+    row = rf"\s*\|\s*{num}\s*\|\s*\d+(?:\.\d+)?\s*\|(?:\s*\d+(?:\.\d+)?\s*\|)?\s*{num}\s*\|\s*<?\s*([\d.]+)"
     patterns = {
-        "lut": r"(?:Slice LUTs|CLB LUTs)\s*\|\s*(\d+)\s*\|\s*\d+\s*\|\s*(\d+)\s*\|\s*([\d.]+)",
-        "ff": r"(?:Slice Registers|CLB Registers)\s*\|\s*(\d+)\s*\|\s*\d+\s*\|\s*(\d+)\s*\|\s*([\d.]+)",
-        "bram": r"Block RAM Tile\s*\|\s*(\d+\.?\d*)\s*\|\s*\d+\s*\|\s*(\d+\.?\d*)\s*\|\s*([\d.]+)",
-        "dsp": r"DSPs?\s*\|\s*(\d+)\s*\|\s*\d+\s*\|\s*(\d+)\s*\|\s*([\d.]+)",
-        "io": r"(?:Bonded IOB|Bonded User I/O)\s*\|\s*(\d+)\s*\|\s*\d+\s*\|\s*(\d+)\s*\|\s*([\d.]+)",
+        "lut": r"(?:Slice LUTs|CLB LUTs)" + row,
+        "ff": r"(?:Slice Registers|CLB Registers)" + row,
+        "bram": r"Block RAM Tile" + row,
+        "dsp": r"DSPs?" + row,
+        "io": r"(?:Bonded IOB|Bonded User I/O)" + row,
     }
 
     for resource, pattern in patterns.items():

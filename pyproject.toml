@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
 ]
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp>=1.0.0,<2",
     "psutil>=5.9.0",
     "paramiko>=3.0.0",
     "pexpect>=4.8.0; sys_platform != 'win32'",
@@ -35,9 +35,9 @@ dependencies = [
 vivado-mcp = "vivado_mcp:main"
 
 [project.urls]
-Homepage = "https://github.com/sinemola/vivado-mcp"
-Repository = "https://github.com/sinemola/vivado-mcp"
-Issues = "https://github.com/sinemola/vivado-mcp/issues"
+Homepage = "https://github.com/sinemortal/vivado-mcp"
+Repository = "https://github.com/sinemortal/vivado-mcp"
+Issues = "https://github.com/sinemortal/vivado-mcp/issues"
 
 # Since the repo root is the package itself, we map the package name to "."
 [tool.setuptools]

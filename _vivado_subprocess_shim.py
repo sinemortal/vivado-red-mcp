@@ -49,7 +49,7 @@ class EOF(Exception):
 
 class spawn:
     def __init__(self, executable, args=None, encoding="utf-8",
-                 timeout=300.0, **_ignored):
+                 timeout=300.0, env=None, **_ignored):
         self.encoding = encoding or "utf-8"
         self.timeout = timeout
         self.before = ""
@@ -60,7 +60,7 @@ class spawn:
         argv = [executable] + list(args or [])
         # 200 cols × 50 rows: wide enough to keep Vivado from wrapping its
         # long log lines mid-word, which would break regex matching.
-        self.proc = winpty.PtyProcess.spawn(argv, dimensions=(50, 200))
+        self.proc = winpty.PtyProcess.spawn(argv, env=env, dimensions=(50, 200))
 
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
@@ -105,9 +105,14 @@ class spawn:
                     self.before = self._buffer[: m.start()]
                     self._buffer = self._buffer[m.end():]
                     return 0
-                buf_empty = len(self._buffer) == 0
-            if self._eof and buf_empty:
-                raise EOF("Child process ended")
+                # Once the reader hit EOF the buffer is final: if the pattern
+                # did not match now it never will. Hand the leftover output
+                # to the caller via .before (like pexpect) instead of
+                # spinning until the timeout.
+                if self._eof:
+                    self.before = self._buffer
+                    self._buffer = ""
+                    raise EOF("Child process ended")
             if time.time() >= deadline:
                 with self._buffer_lock:
                     self.before = self._buffer

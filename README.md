@@ -29,9 +29,15 @@ on-board deployment), not just generic Vivado control.
 ## Requirements
 
 - Python 3.10+
-- AMD/Xilinx Vivado installed — **developed and validated against Vivado 2020.1**
-  (the version the Red Pitaya STEMlab 125-14 toolchain targets). Generic Vivado
-  tools work on newer versions too, but the Red Pitaya flows assume 2020.1.
+- AMD/Xilinx Vivado installed — originally developed against **Vivado 2020.1**,
+  also validated end-to-end on **Vivado 2026.1** (Windows): session, RTL and
+  PS+PL Red Pitaya builds, reports, xsim and block design. The PS+PL flow works
+  with both the current RedPitaya-FPGA `master` (targets 2025.1) and legacy
+  2020.1-era checkouts; the workspace copy is patched to run on the installed
+  release (see `get_vivado_doc redpitaya_ps_pl_flow`).
+- Vivado 2025.x/2026.x need a license file even for the free edition: generate a
+  node-locked **Vivado Basic Tier** (no charge) license on the AMD licensing site
+  and load it with the Vivado License Manager (`vlm`).
 - Vivado must be in your PATH, or specify the full path when starting a session
 - **Linux/macOS**: uses `pexpect` (installed automatically)
 - **Windows**: uses a `pywinpty` (ConPTY) shim (installed automatically). `vivado.bat` must be
@@ -44,7 +50,7 @@ on-board deployment), not just generic Vivado control.
 ### From GitHub
 
 ```bash
-git clone https://github.com/sinemola/vivado-mcp.git
+git clone https://github.com/sinemortal/vivado-mcp.git
 cd vivado-mcp
 pip install -e .
 ```

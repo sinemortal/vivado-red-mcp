@@ -172,11 +172,13 @@ TOOLS = [
 
 
 _MODE_MAP = {
-    "behavioral": "behav",
-    "post_synth_func": "synth -type func",
-    "post_synth_timing": "synth -type timing",
-    "post_impl_func": "impl -type func",
-    "post_impl_timing": "impl -type timing",
+    # Full value names as documented by `help launch_simulation`; the short
+    # forms (behav/synth/impl/func) are rejected by Vivado 2026.1.
+    "behavioral": "behavioral",
+    "post_synth_func": "post-synthesis -type functional",
+    "post_synth_timing": "post-synthesis -type timing",
+    "post_impl_func": "post-implementation -type functional",
+    "post_impl_timing": "post-implementation -type timing",
 }
 
 
@@ -184,7 +186,7 @@ def _launch(session, args):
     if (e := require_project_open(session)):
         return e
     mode = args.get("mode", "behavioral")
-    sim_mode = _MODE_MAP.get(mode, "behav")
+    sim_mode = _MODE_MAP.get(mode, "behavioral")
     r = session.run_tcl(f"launch_simulation -mode {sim_mode}")
     return {
         "success": r.success,
