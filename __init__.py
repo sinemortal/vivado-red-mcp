@@ -43,7 +43,7 @@ Example workflow (from an AI assistant):
 
 Requirements:
     - Python 3.10+
-    - mcp>=1.0.0 (Model Context Protocol library)
+    - mcp>=1.0,<2 (Model Context Protocol Python SDK, 1.x)
     - pexpect (for Vivado process management)
     - AMD/Xilinx Vivado installed and in PATH
 
@@ -55,7 +55,7 @@ import asyncio
 from .server import main as _async_main
 
 # Package version
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 
 
 def main():

@@ -1,285 +1,396 @@
 # Vivado MCP Server — Red Pitaya edition
 
-A Model Context Protocol (MCP) server that enables AI assistants like Claude to
-directly drive AMD/Xilinx Vivado, **and take a Red Pitaya STEMlab 125-14
-(Zynq xc7z010) design from a natural-language description all the way to a
-bitstream running on the board** — synthesis, implementation, `.bit.bin`
-generation, and SSH deploy, with no Vivado GUI.
+An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant such as
+Claude drive **AMD/Xilinx Vivado** directly: create projects, build block designs,
+synthesize, implement, simulate, read timing/utilization reports and generate
+bitstreams — without opening the Vivado GUI.
 
-This is what sets it apart from other Vivado MCP servers: first-class Red Pitaya
-support (bundled board XDC, the canonical RedPitaya-FPGA PS+PL backbone, and
-on-board deployment), not just generic Vivado control.
+It has first-class support for the **Red Pitaya STEMlab 125-14** (Zynq
+`xc7z010clg400-1`): you can go from a natural-language description to a
+`.bit.bin` running on the board, using either pure RTL or the official
+RedPitaya-FPGA PS+PL (ARM + FPGA) backbone, and deploy it over SSH.
 
 > Forked from [coreyhahn/vivado_mcp](https://github.com/coreyhahn/vivado_mcp) and
-> heavily extended: a modular `tools/` registry, Block Design / IP Integrator,
-> Hardware Manager, advanced reports, the Red Pitaya RTL + PS+PL flows, and SSH
-> deploy.
+> heavily extended (93 tools): block design / IP Integrator, IP catalog, Hardware
+> Manager, advanced reports, Red Pitaya RTL and PS+PL flows, SSH deploy.
 
-## Features
+**Current version: 0.4.0** — see [What's new](#whats-new-in-040) and [`CHANGELOG.md`](CHANGELOG.md).
 
-- **Session Management**: Start/stop persistent Vivado TCL sessions (avoids 30s startup per command)
-- **Project Management**: Open/close Vivado projects (.xpr files)
-- **Design Flow**: Run synthesis, implementation, and bitstream generation
-- **Reports & Analysis**: Get timing summaries, utilization reports, and design analysis
-- **Design Queries**: Explore hierarchy, ports, nets, and cells
-- **Simulation**: Control Vivado's integrated simulator (xsim)
-- **Red Pitaya end-to-end**: Create RTL or PS+PL projects, build, and deploy the bitstream to the board over SSH
-- **Raw TCL**: Execute arbitrary Vivado TCL commands for advanced operations
+---
+
+## Contents
+
+- [What it can do](#what-it-can-do)
+- [Tested with](#tested-with)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [First steps](#first-steps)
+- [Red Pitaya](#red-pitaya)
+- [What's new in 0.4.0](#whats-new-in-040)
+- [Troubleshooting](#troubleshooting)
+- [Available tools](#available-tools)
+- [Architecture](#architecture)
+- [License](#license)
+
+## What it can do
+
+- **Persistent Vivado session** — one Vivado process in Tcl mode is kept alive, so
+  commands don't pay the 20–30 s startup each time.
+- **Projects and design flow** — create/open projects, add HDL and XDC files,
+  synthesis, implementation, bitstream, run strategies.
+- **Block design (IP Integrator)** — ports, IP cores, RTL module cells, nets, PS7
+  presets, validation, wrapper generation.
+- **Reports** — timing (WNS/TNS/WHS/THS), utilization, clocks, power, DRC,
+  methodology, QoR; returned as parsed values, not just raw text.
+- **Simulation (xsim)** — behavioral and post-synthesis/implementation, read
+  signal values, breakpoints.
+- **Red Pitaya** — one-shot RTL build, full PS+PL build from the official
+  RedPitaya-FPGA repo, bundled board constraints, `.bit.bin` generation, SSH deploy.
+- **Raw Tcl** — anything not covered by a tool can be run as Tcl (multi-line
+  scripts supported).
+
+## Tested with
+
+| | Status |
+|---|---|
+| **Vivado 2026.1, Windows 11** | Validated end-to-end in 0.4.0: session, RTL and PS+PL Red Pitaya builds, reports, behavioral + post-synthesis xsim, block design, RedPitaya-FPGA tutorials (see below) |
+| Vivado 2020.1, Linux | Original development target (0.3.x). Not re-tested on 0.4.0 |
+| Other Vivado releases | Expected to work (the generic tools use standard Tcl); not tested |
+| Red Pitaya board | **STEMlab 125-14 (Z10) only** for the Red Pitaya flows |
+| Python | 3.10 – 3.12 |
+| MCP Python SDK | **1.x only** (`mcp>=1.0,<2`, pinned automatically) |
+
+The RedPitaya-FPGA tutorials in `prj/Examples` (Led_blink, Knight_rider, Stopwatch,
+Frequency_counter) build to a bitstream through the server. Led_blink and
+Knight_rider rebuilt from scratch with MCP tools only produce **byte-identical
+bitstreams** to the tutorials' own scripts.
 
 ## Requirements
 
-- Python 3.10+
-- AMD/Xilinx Vivado installed — originally developed against **Vivado 2020.1**,
-  also validated end-to-end on **Vivado 2026.1** (Windows): session, RTL and
-  PS+PL Red Pitaya builds, reports, xsim and block design. The PS+PL flow works
-  with both the current RedPitaya-FPGA `master` (targets 2025.1) and legacy
-  2020.1-era checkouts; the workspace copy is patched to run on the installed
-  release (see `get_vivado_doc redpitaya_ps_pl_flow`).
-- Vivado 2025.x/2026.x need a license file even for the free edition: generate a
-  node-locked **Vivado Basic Tier** (no charge) license on the AMD licensing site
-  and load it with the Vivado License Manager (`vlm`).
-- Vivado must be in your PATH, or specify the full path when starting a session
-- **Linux/macOS**: uses `pexpect` (installed automatically)
-- **Windows**: uses a `pywinpty` (ConPTY) shim (installed automatically). `vivado.bat` must be
-  reachable on `PATH` — source `C:\Xilinx\Vivado\<version>\settings64.bat` in
-  the shell that launches `vivado-mcp`, or pass an absolute path to
-  `start_session`.
+1. **Python 3.10+**
+2. **AMD Vivado** (the free edition is enough for the Red Pitaya `xc7z010`).
+   When installing, you only need *Vivado* and, under devices, *SoCs → Zynq-7000*;
+   Vitis Model Composer and DocNav are not needed.
+3. **A Vivado license file — also for the free edition on 2025.x/2026.x.**
+   Without it Vivado refuses to start (`a valid license was not found`):
+   - open the Vivado License Manager (`<Vivado>/bin/vlm.bat` on Windows, `vlm` on Linux);
+   - *Obtain License* → on the AMD site tick **Vivado Basic Tier License, Node
+     Locked License** (no charge, no expiry) → *Generate Node-Locked License*;
+   - host ID: the MAC address of your network card (shown under *View Host
+     Information*). The license is tied to the PC, not to the network you use;
+   - load the received `Xilinx.lic` with *Load License → Copy License*.
+4. **Vivado reachable by the server**, either:
+   - on `PATH` (Linux: `source <Vivado>/settings64.sh`; Windows: add
+     `<Vivado>\bin` to `PATH`), or
+   - by telling Claude the full path, which it passes to `start_session`
+     (e.g. `D:\AMDDesignTools\2026.1\Vivado\bin\vivado.bat`).
+
+`pexpect` (Linux/macOS) or `pywinpty` (Windows) is installed automatically.
 
 ## Installation
 
-### From GitHub
+### 1. Get the code and install it
 
 ```bash
 git clone https://github.com/sinemortal/vivado-mcp.git
 cd vivado-mcp
+python -m venv .venv
+# Windows:      .venv\Scripts\activate
+# Linux/macOS:  source .venv/bin/activate
 pip install -e .
 ```
 
-### Configure Claude Code
+`pip` pins the MCP SDK to 1.x by itself. Do not upgrade `mcp` to 2.x: the server
+would not start (`'Server' object has no attribute 'list_tools'`).
 
-Add to your Claude Code MCP configuration (`~/.claude/claude_desktop_config.json` or project-level `.mcp.json`):
+### 2. Register it with Claude Code
+
+Once, for all your projects:
+
+```bash
+claude mcp add --transport stdio --scope user vivado -- vivado-mcp
+```
+
+If `vivado-mcp` is not on `PATH` when Claude Code starts (typical with a virtual
+environment), point to the venv's Python instead:
+
+```bash
+# Windows
+claude mcp add --transport stdio --scope user vivado -- "C:\path\to\vivado-mcp\.venv\Scripts\python.exe" -m vivado_mcp
+# Linux/macOS
+claude mcp add --transport stdio --scope user vivado -- /path/to/vivado-mcp/.venv/bin/python -m vivado_mcp
+```
+
+Or share it with a single project through a `.mcp.json` at the project root:
 
 ```json
 {
   "mcpServers": {
     "vivado": {
+      "type": "stdio",
       "command": "vivado-mcp"
     }
   }
 }
 ```
 
-Or if you want to specify the Python interpreter:
+Check it with `claude mcp list`: `vivado` should show as connected.
 
-```json
-{
-  "mcpServers": {
-    "vivado": {
-      "command": "python",
-      "args": ["-m", "vivado_mcp"]
-    }
-  }
-}
+### 3. Optional: disable the RedPitaya-FPGA auto-download
+
+On startup the server downloads the RedPitaya-FPGA repo (source zip) into its
+working directory if it is missing, for the PS+PL flow. Set the
+environment variable `VIVADO_MCP_NO_AUTOFETCH=1` to turn this off; the
+`rp_fetch_repo` tool can still download it on demand.
+
+## First steps
+
+Talk to Claude in plain language, for example:
+
+1. "Start a Vivado session" (add the path if Vivado is not on `PATH`)
+2. "Open my project at `C:/work/my_proj/my_proj.xpr`"
+3. "Synthesize and implement it, then tell me if timing is met"
+4. "Show me the resource utilization"
+5. "Generate the bitstream"
+6. "Stop the Vivado session"
+
+Claude picks the tools; you never have to call them by name.
+
+## Red Pitaya
+
+Two flows, depending on whether you need the ARM processor:
+
+| Flow | Tool | Use it for |
+|---|---|---|
+| **RTL only** (no PS7) | `create_redpitaya_project_rtl` | Logic clocked by the 125 MHz ADC clock: LEDs, counters, expansion-connector GPIO. One call does create → sources → XDC → synth → impl → bitstream → `.bit.bin` |
+| **PS + PL** | `rp_fetch_repo` → `rp_setup_workspace` → `rp_build_project` | Designs that need the ARM, DDR or AXI. Reuses the PS7 block design shipped by [RedPitaya-FPGA](https://github.com/RedPitaya/RedPitaya-FPGA) instead of reconfiguring the Zynq by hand |
+
+Example prompt:
+
+> Make an LED blinker at 1 Hz for the Red Pitaya using the 125 MHz ADC clock on
+> `led_o[0]`, build it and give me the `.bit.bin`.
+
+To load the result on the board, ask Claude to use `deploy_to_redpitaya` (SSH,
+default credentials `root`/`root`; works with OS 1.04 `xdevcfg` and OS 2.00
+`fpgautil`), or copy it yourself:
+
+```bash
+scp led_blinker.bit.bin root@rp-xxxxxx.local:/tmp/
+ssh root@rp-xxxxxx.local 'cat /tmp/led_blinker.bit.bin > /dev/xdevcfg'
 ```
 
-## Usage
+**PS+PL and the RedPitaya-FPGA repo.** The current upstream `master` targets
+Vivado 2025.1; older checkouts targeted 2020.1. Both layouts are supported.
+`rp_setup_workspace` copies the repo into a separate workspace and patches only
+that copy, so the scripts run on the Vivado you have installed (their exported
+block-design/IP scripts otherwise refuse any other release) and without a git
+checkout. Your downloaded repo is never modified. Details:
+`get_vivado_doc redpitaya_ps_pl_flow`.
 
-Once configured, Claude can interact with Vivado through natural language. Example workflow:
+**Bundled board data** (`data/boards/`):
+- `red_pitaya_125_14_full.xdc` — full pinout (ADC, DAC, LEDs, expansion
+  connector, XADC), port names as in the official `red_pitaya_top`
+  (`adc_dat_i[ch][bit]`, `dac_dat_o`, `exp_p_io`, …); checked pin by pin against
+  upstream `sdc/red_pitaya.xdc`.
+- `red_pitaya_125_14_leds_min.xdc` — 125 MHz differential ADC clock + 8 LEDs, for
+  hello-world designs.
+- `red_pitaya_125_14_info.json` — part number and board metadata.
 
-1. **Start Vivado session**: "Start a Vivado session"
-2. **Open project**: "Open my project at /path/to/project.xpr"
-3. **Run synthesis**: "Synthesize the design"
-4. **Check timing**: "What's the timing summary? Is timing met?"
-5. **Check utilization**: "Show me the resource utilization"
-6. **Close session**: "Stop the Vivado session"
+The RedPitaya tutorials (`prj/Examples`) use different port names
+(`adc_dat_a_i`, `adc_clk_p_i`, …) and a PS7 preset (`cfg/red_pitaya.xml`); use
+their own `cfg/` files when rebuilding them.
 
-## Red Pitaya quick start
+More Italian prompt examples and the step-by-step low-level flow: [`USAGE.md`](USAGE.md).
 
-This fork adds first-class support for creating Red Pitaya STEMlab 125-14
-projects from scratch — no .xpr template or Vivado GUI needed. Describe your
-design in chat and Claude will call **one** composite tool that runs the
-whole flow (create → add sources → add XDC → synth → impl → bitstream → `.bin`).
+## What's new in 0.4.0
 
-See **[USAGE.md](USAGE.md)** for Italian prompt examples and the step-by-step
-low-level flow.
+**Works on Vivado 2026.1 and with the current RedPitaya-FPGA repo.**
 
-New tools added for this use case:
+Fixed:
+- Server failed to start with MCP SDK 2.x → SDK pinned to 1.x.
+- **Simulation never worked when the server was started by Claude Code on
+  Windows** (xsim: `Spawn failed`) → fixed.
+- Multi-line Tcl sent through `run_tcl` was silently corrupted on Windows → fixed.
+- `get_timing_summary` always returned empty values; `get_utilization` misread
+  newer reports → both parse current Vivado output.
+- Reports right after a build failed with no message (`No open design`) → the
+  latest completed run is opened automatically.
+- `get_synthesis_errors_parsed` always returned 0 errors → now reads the run logs,
+  including failed IP runs.
+- `launch_simulation` modes rejected by recent Vivado → fixed.
+- `generate_bitstream` timed out after 300 s and didn't check the result → now
+  verified, returns the `.bit` path.
+- Missing license (or any startup failure) now reports Vivado's own message in
+  seconds instead of a generic error after 2 minutes.
+- **Bundled `red_pitaya_125_14_full.xdc` had 6 wrong pins** (ADC channel A MSB and
+  `dac_dat_o[8..12]`) → corrected.
+- PS+PL flow broken by the new RedPitaya-FPGA layout → both layouts supported.
 
-- `create_project` — create a Vivado project on disk (defaults to
-  `xc7z010clg400-1`)
-- `add_sources` / `add_constraints` — attach HDL and XDC files to the project
-- `list_boards` / `get_board_info` — browse bundled board metadata and get
-  absolute paths to the vendored XDC files (no Vivado session needed)
-- `generate_cfgmem` — convert a `.bit` to the `.bit.bin` that the Red Pitaya
-  expects at `/dev/xdevcfg`
-- `get_synthesis_errors_parsed` — structured error list from a failed run
-- **`create_redpitaya_project_rtl`** — composite that runs the whole RTL
-  flow end-to-end and returns `{bit_path, bin_path, timing_summary, utilization}`
+New tools: `create_bd_port`, `add_module_to_bd`, `configure_bd_cell`,
+`set_run_strategy`. Full list in [`CHANGELOG.md`](CHANGELOG.md).
 
-Bundled data under `data/boards/`:
-- `red_pitaya_125_14_full.xdc` — complete peripheral pinout (ADC, DAC, LEDs,
-  expansion connector, XADC), from `RedPitaya/RedPitaya-FPGA` sdc/
-- `red_pitaya_125_14_leds_min.xdc` — minimal constraints (125 MHz differential
-  clock + 8 user LEDs) for hello-world projects
-- `red_pitaya_125_14_info.json` — part number, LED count, default synth flags
+## Troubleshooting
 
-## Available Tools
+| Symptom | Cause / fix |
+|---|---|
+| `start_session` fails with `valid license was not found` | Vivado 2025.x/2026.x needs a license file even for the free edition — see [Requirements](#requirements) |
+| `start_session` cannot find Vivado | Put `<Vivado>/bin` on `PATH` or give Claude the full path of `vivado.bat` / `vivado` |
+| Server does not start: `'Server' object has no attribute 'list_tools'` | MCP SDK 2.x installed. Run `pip install "mcp>=1.0,<2"` |
+| `claude mcp list` shows `vivado` as failed | `vivado-mcp` not on `PATH` for Claude Code: register it with the venv's Python (see [Installation](#2-register-it-with-claude-code)) |
+| A RedPitaya example fails synthesis with `red_pitaya_pll ... port does not exist` | Upstream issue in `prj/Examples/Simple_moving_average` (it pulls in `rtl_250`), not in this server |
+| Occasional `Could not open 'C' for writing` in an IP run | Intermittent Vivado issue with parallel out-of-context runs; re-run synthesis |
+| Long paths on Windows | Keep projects in short paths; Vivado and IP generation hit the 260-character limit |
 
-### Session Management
-- `start_session` - Start a persistent Vivado TCL session
+## Available tools
+
+### Session management
+- `start_session` - Start a persistent Vivado Tcl session (optional `vivado_path`)
 - `stop_session` - Stop the Vivado session
-- `session_status` - Get session statistics
+- `session_status` - Session statistics
+- `check_session_health` - Detect a hung/dead session, optionally recover
+- `get_host_status` - Host CPU/memory status
 
-### Project Management
-- `open_project` - Open a Vivado project (.xpr)
-- `close_project` - Close the current project
-- `get_project_info` - Get project information (part, directory, etc.)
+### Project management
+- `create_project` - Create a project on disk (default part `xc7z010clg400-1`)
+- `open_project` / `close_project` - Open or close an `.xpr`
+- `get_project_info` - Part, directory, top, …
+- `add_sources` / `add_constraints` - Attach HDL and XDC files
 
-### Design Flow
-- `run_synthesis` - Run synthesis
-- `run_implementation` - Run place and route
-- `generate_bitstream` - Generate bitstream (verified run status + `.bit` path)
-- `set_run_strategy` - Set the synth/impl run strategy
+### Design flow
+- `run_synthesis` - Run synthesis (verified run status)
+- `run_implementation` - Run place and route (verified run status)
+- `generate_bitstream` - Generate the bitstream (verified status + `.bit` path)
+- `set_run_strategy` - Set the synthesis/implementation run strategy
 
-### Reports & Analysis
-- `get_timing_summary` - Get timing summary (WNS, TNS, WHS, THS)
-- `get_timing_paths` - Get detailed timing paths for failing/critical paths
-- `get_utilization` - Get resource utilization (LUTs, FFs, BRAMs, DSPs)
-- `get_clocks` - Get clock information
-- `get_messages` - Get synthesis/implementation messages
+### Reports & analysis
+Report tools open the latest completed run automatically if no design is open.
+- `get_timing_summary` - WNS, TNS, WHS, THS, pulse width, met / not met
+- `get_timing_paths` - Detailed timing paths for failing/critical paths
+- `get_utilization` - LUTs, FFs, BRAMs, DSPs, IOs
+- `get_clocks` - Clock information
+- `get_messages` - Synthesis/implementation messages
 
-### Design Queries
-- `get_design_hierarchy` - Get module/instance hierarchy
-- `get_ports` - Get top-level ports
-- `get_nets` - Search for nets
-- `get_cells` - Search for cells/instances
+### Design queries
+- `get_design_hierarchy` - Module/instance hierarchy
+- `get_ports` - Top-level ports
+- `get_nets` / `get_cells` - Search nets and cells
 
-### Simulation
-- `launch_simulation` - Launch behavioral/post-synth/post-impl simulation
-- `run_simulation` - Run simulation for specified time
-- `restart_simulation` - Restart from time 0
-- `close_simulation` - Close the simulator
-- `get_simulation_time` - Get current simulation time
-- `get_signal_value` - Get a signal's current value
-- `get_signal_values` - Get multiple signal values by pattern
-- `add_signals_to_wave` - Add signals to waveform viewer
+### Simulation (xsim)
 - `set_simulation_top` - Set the testbench module
-- `get_simulation_objects` - List signals in a scope
-- `get_scopes` - List hierarchy scopes
-- `step_simulation` - Step simulation
-- `add_breakpoint` - Add signal breakpoint
-- `remove_breakpoints` - Remove all breakpoints
+- `launch_simulation` - Behavioral, post-synthesis or post-implementation
+  (functional/timing)
+- `run_simulation` / `step_simulation` / `restart_simulation` / `close_simulation`
+- `get_simulation_time`
+- `get_signal_value` / `get_signal_values` - Read signals
+- `get_simulation_objects` / `get_scopes` - Browse the hierarchy
+- `add_signals_to_wave`
+- `add_breakpoint` / `remove_breakpoints`
+- `get_simulation_messages`
 
-### Block Design (IP Integrator) — Zynq / AXI
-- `create_block_design` - Create a new block design and make it current
-- `save_bd_design` / `close_bd_design` - Persist or close the BD
-- `list_bd_cells` - List cells in the current BD
-- `add_ip_to_bd` - Add an IP core (VLNV) and apply `CONFIG.*` properties
+### Block design (IP Integrator) — Zynq / AXI
+- `create_block_design` - Create a block design and make it current
+- `create_bd_port` - Scalar, vector or interface ports
+- `add_ip_to_bd` - Add an IP core (VLNV) with `CONFIG.*` properties
 - `add_module_to_bd` - Add an RTL module as a module-reference cell
 - `configure_bd_cell` - Set `CONFIG.*` on an existing cell (e.g. PS7 board preset import)
-- `create_bd_port` - Create scalar / vector / interface ports on the BD
-- `connect_bd_net` / `connect_bd_intf_net` - Wire scalar / AXI pins
+- `connect_bd_net` / `connect_bd_intf_net` - Wire pins/ports and AXI interfaces
 - `auto_connect_axi` - `apply_bd_automation` for AXI master ↔ slave
-- `apply_ps7_preset` - Apply Zynq PS7 board automation (FIXED_IO/DDR/clocks)
-- `validate_block_design` - Run DRC on the BD
+- `apply_ps7_preset` - Zynq PS7 automation (FIXED_IO/DDR external)
+- `validate_block_design` - Run BD DRC
 - `assign_bd_address` - Auto-assign AXI address ranges
-- `regenerate_bd_layout` - Refresh BD layout before save
+- `regenerate_bd_layout` - Tidy the layout
+- `save_bd_design` / `close_bd_design` - Persist or close the BD
+- `list_bd_cells` - List cells
 - `generate_bd_wrapper` - `make_wrapper` + add to fileset + set as top
 
-### IP Catalog
-- `create_ip` - Create an IP from the Xilinx catalog
-- `configure_ip` - Apply `CONFIG.*` to an existing IP
-- `generate_ip_target` - Generate synth/simulation output products
-- `synth_ip` - Out-of-context synthesis
-- `upgrade_ip` - Upgrade IP to latest catalog version
-- `report_ip_status` - Audit IP versions in the project
+### IP catalog
+- `create_ip` / `configure_ip` - Create and configure catalog IPs
+- `generate_ip_target` / `synth_ip` - Output products, out-of-context synthesis
+- `upgrade_ip` / `report_ip_status` - Upgrade and audit IP versions
 
-### Hardware Manager (JTAG programming)
-- `open_hw_manager` / `close_hw_manager` - Manage HW manager lifecycle
-- `connect_hw_server` - Connect to `hw_server` (default localhost:3121)
-- `program_device` - Program a `.bit` via the JTAG chain
-- `refresh_hw_device` - Re-read JTAG chain state
+### Hardware Manager (JTAG)
+- `open_hw_manager` / `close_hw_manager`
+- `connect_hw_server` - Connect to `hw_server` (default `localhost:3121`)
+- `program_device` - Program a `.bit` over JTAG
+- `refresh_hw_device` - Re-read the JTAG chain
 
-### Advanced Reports
-- `report_power` - Parsed total/dynamic/static power
-- `report_drc` - Structured DRC violations grouped by severity
+### Advanced reports
+- `report_power` - Total/dynamic/static power
+- `report_drc` - DRC violations grouped by severity
 - `report_methodology` - UltraFast methodology checks
-- `report_qor_assessment` - Overall QoR score
-- `report_clock_interaction` - Cross-clock paths analysis
+- `report_qor_assessment` - QoR score
+- `report_clock_interaction` - Cross-clock paths
+- `generate_full_report` / `read_report_section` - Full reports to file, read them in pieces
 
-### RedPitaya PS+PL flow
-Build full Processing System + Programmable Logic designs by reusing the canonical
-RedPitaya-FPGA backbone (the `systemZ10.tcl` PS7 block design) instead of
-reconfiguring the Zynq PS7 from scratch. See `get_vivado_doc redpitaya_ps_pl_flow`.
-- `rp_fetch_repo` - Download the RedPitaya-FPGA repo from GitHub (source zip,
-  stdlib only, no `git`). Also runs automatically on server startup into the
-  process working directory when the repo is absent — disable that with the
-  `VIVADO_MCP_NO_AUTOFETCH` environment variable.
-- `rp_setup_workspace` - Copy a RedPitaya-FPGA repo into an isolated build workspace
-- `rp_list_projects` - List `prj/*` projects, flag Z10-capable ones
-- `rp_workspace_info` - Report workspace state and which projects are built
-- `rp_create_custom_project` - Clone a base project for custom PL logic
-- `rp_build_project` - Build a PS+PL project end-to-end (setup → synth → impl →
-  bitstream → `.bit.bin`)
+### Red Pitaya — RTL flow
+- `list_boards` / `get_board_info` - Bundled board metadata and XDC paths (no Vivado needed)
+- `load_board_xdc` - Add a bundled board XDC to the project
+- `create_redpitaya_project_rtl` - One-shot RTL build; returns `bit_path`,
+  `bin_path`, parsed `timing_summary` and `utilization`
+- `generate_cfgmem` - `.bit` → `.bit.bin` for `/dev/xdevcfg` / `fpgautil`
+- `get_synthesis_errors_parsed` - Structured errors from the run logs, including
+  failed IP runs
 
-### Red Pitaya deploy (SSH)
-Push a built bitstream to a live board and run shell commands on it — no Vivado
-session required.
-- `deploy_to_redpitaya` - SFTP a `.bit.bin` to the board and load it via
-  `xdevcfg` (OS 1.04) or `fpgautil` (OS 2.00). Default factory creds `root`/`root`.
-- `ssh_redpitaya_exec` - Run an arbitrary command on the Red Pitaya over SSH
+### Red Pitaya — PS+PL flow
+- `rp_fetch_repo` - Download RedPitaya-FPGA (source zip, no git needed)
+- `rp_setup_workspace` - Isolated, patched copy of the repo to build in
+- `rp_list_projects` - List `prj/*` projects, flag the Z10-capable ones
+- `rp_workspace_info` - Which projects are already built
+- `rp_create_custom_project` - Clone a base project for your own PL logic
+- `rp_build_project` - Setup → synth → impl → bitstream → `.bit.bin`, with parsed timing
+
+### Red Pitaya — deploy (SSH, no Vivado needed)
+- `deploy_to_redpitaya` - Upload a `.bit.bin` and load it (`xdevcfg` on OS 1.04,
+  `fpgautil` on OS 2.00)
+- `ssh_redpitaya_exec` - Run a shell command on the board
 
 ### Documentation (offline)
-- `list_vivado_docs` - List bundled Vivado documentation topics
-- `get_vivado_doc` - Read a topic markdown (`block_design`, `ps7_zynq`,
-  `timing_constraints`, `synthesis_strategies`, `simulation_xsim`,
+- `list_vivado_docs` / `get_vivado_doc` - Bundled topics (`block_design`,
+  `ps7_zynq`, `timing_constraints`, `synthesis_strategies`, `simulation_xsim`,
   `red_pitaya_125_14`, `redpitaya_ps_pl_flow`, `tcl_quoting`, `hw_manager`,
-  `ip_integrator`, `pitfalls_2020_1`). Each topic embeds the upstream AMD UG URL.
+  `ip_integrator`, `pitfalls_2020_1`), each with links to the AMD user guides
 
-### Advanced
-- `run_tcl` / `run_tcl_script` - Execute raw TCL command or source a script
-- `generate_full_report` - Generate full reports to file
-- `read_report_section` - Read portions of large reports
-- `load_board_xdc` - Resolve a bundled board XDC and add to constraints
-- `request_feature` - Request new features
-- `list_feature_requests` - List submitted requests
+### Raw Tcl and misc
+- `run_tcl` - Run any Tcl command or multi-line script
+- `run_tcl_script` - Source a `.tcl` file
+- `request_feature` / `list_feature_requests`
 
 ## Architecture
 
 ```
-┌─────────────────┐     MCP Protocol      ┌─────────────────┐
-│   Claude Code   │◄────(JSON-RPC)────────►│  Vivado MCP     │
-│   (AI Client)   │     over stdio        │    Server       │
-└─────────────────┘                       └────────┬────────┘
-                                                   │
-                                                   │ pexpect
-                                                   │ (TCL commands)
-                                                   ▼
-                                          ┌─────────────────┐
-                                          │ Vivado Process  │
-                                          │  (TCL mode)     │
-                                          └─────────────────┘
+┌─────────────────┐     MCP (JSON-RPC)     ┌─────────────────┐
+│   Claude Code   │◄──────over stdio──────►│  vivado-mcp     │
+│   (AI client)   │                        │  server         │
+└─────────────────┘                        └────────┬────────┘
+                                                    │ pexpect (Linux)
+                                                    │ pywinpty/ConPTY (Windows)
+                                                    ▼
+                                           ┌─────────────────┐
+                                           │ Vivado process  │
+                                           │  (-mode tcl)    │
+                                           └─────────────────┘
 ```
 
-The server maintains a persistent Vivado process in TCL mode. Commands are sent via pexpect and output is captured by waiting for the Vivado prompt. This avoids the ~30 second startup overhead that would occur if Vivado were launched for each command.
-
-For the design conventions (tool registry pattern, the two Red Pitaya build flows,
-Vivado TCL quoting pitfalls), see [`CLAUDE.md`](CLAUDE.md).
+The server keeps one Vivado process in Tcl mode and talks to it through a
+pseudo-terminal, using the `Vivado%` prompt to know when a command has finished.
+Each tool family lives in its own module under `tools/`; see [`CLAUDE.md`](CLAUDE.md)
+for the design conventions and known Vivado Tcl pitfalls.
 
 ## Contributing
 
-Contributions welcome! Please feel free to submit issues and pull requests.
+Issues and pull requests are welcome. There is no automated Vivado test in CI
+(it only checks that every tool has a handler); changes to the Vivado-facing code
+should be validated against a real Vivado install.
 
 ## License
 
-MIT License - see [`LICENSE`](LICENSE) for details. Bundled third-party
-material (the Red Pitaya board XDC files, 3-clause BSD) is documented in
-[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+MIT — see [`LICENSE`](LICENSE). Bundled third-party material (Red Pitaya board XDC
+files, 3-clause BSD) is listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
 
 ## Acknowledgments
 
 - Forked from [coreyhahn/vivado_mcp](https://github.com/coreyhahn/vivado_mcp) (MIT)
-- Red Pitaya flows build on the [RedPitaya/RedPitaya-FPGA](https://github.com/RedPitaya/RedPitaya-FPGA) backbone
+- Red Pitaya flows build on [RedPitaya/RedPitaya-FPGA](https://github.com/RedPitaya/RedPitaya-FPGA)
 - Developed with [Claude](https://claude.ai) (Anthropic)
-- Uses the [Model Context Protocol](https://modelcontextprotocol.io) specification
-- Integrates with [AMD/Xilinx Vivado](https://www.xilinx.com/products/design-tools/vivado.html)
+- Uses the [Model Context Protocol](https://modelcontextprotocol.io)
+- Integrates with [AMD Vivado](https://www.amd.com/en/products/software/adaptive-socs-and-fpgas/vivado.html)

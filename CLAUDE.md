@@ -19,8 +19,7 @@ Vivado 2026.1 (Windows).
 
 ```bash
 # From this repo root, editable install
-cd vivado_mcp
-pip install -e .
+pip install -e .   # pins the MCP SDK to 1.x (mcp>=1.0,<2)
 
 # Console script registered: `vivado-mcp` (entry point: vivado_mcp:main)
 # MCP transport: stdio (JSON-RPC over stdin/stdout)
@@ -31,11 +30,12 @@ python -c "from vivado_mcp.tools import ALL_TOOLS, ALL_HANDLERS; \
   print(f'{len(ALL_TOOLS)} tools OK')"
 ```
 
-There is no test suite. Validation is done live against Vivado.
+There is no test suite in the repo; CI only runs the registry check. Validate
+changes live against Vivado.
 
 Register with Claude Code (user-global):
 ```bash
-claude mcp add vivado --scope user vivado-mcp
+claude mcp add --transport stdio --scope user vivado -- vivado-mcp
 ```
 
 ## Architecture

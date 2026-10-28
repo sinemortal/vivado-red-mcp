@@ -13,14 +13,21 @@ it to `/dev/xdevcfg`.
 
 ## Prerequisites (Linux host)
 
-1. Vivado 2020.1 or newer, sourced in the shell that launches `vivado-mcp`:
+1. Vivado (2020.1, or 2025.x/2026.x with the free Basic Tier license loaded —
+   see the README), sourced in the shell that launches `vivado-mcp`:
    ```bash
    source /opt/Xilinx/2020.1/Vivado/settings64.sh
    ```
-2. `pip install -e .` inside the cloned `vivado_mcp/` directory.
-3. `.mcp.json` or `~/.claude/claude_desktop_config.json`:
+   On Windows, put `<Vivado>in` on `PATH` or give Claude the full path of
+   `vivado.bat`.
+2. `pip install -e .` inside the cloned `vivado-mcp/` directory.
+3. Register the server with Claude Code:
+   ```bash
+   claude mcp add --transport stdio --scope user vivado -- vivado-mcp
+   ```
+   or add it to a project-level `.mcp.json`:
    ```json
-   { "mcpServers": { "vivado": { "command": "vivado-mcp" } } }
+   { "mcpServers": { "vivado": { "type": "stdio", "command": "vivado-mcp" } } }
    ```
 
 ## Typical one-shot flow
@@ -33,7 +40,8 @@ In the chat, after Claude has a `start_session` running, it will:
 3. Call `create_redpitaya_project_rtl` with the file path and top module.
 4. Return the `.bit` / `.bit.bin` paths from the composite's response.
 
-You then load the bitstream on the board:
+You then load the bitstream on the board — ask Claude to run
+`deploy_to_redpitaya`, or do it by hand:
 
 ```bash
 scp /tmp/rp_projects/led_blinker_1hz/led_blinker_1hz.runs/impl_1/led_blinker.bit.bin \
@@ -102,7 +110,8 @@ Se non vuoi usare il composito, i primitivi sono tutti disponibili:
 ## Quando qualcosa non funziona
 
 - **Sintesi fallita:** chiama `get_synthesis_errors_parsed()` per avere la
-  lista strutturata degli errori invece del log grezzo.
+  lista strutturata degli errori (letti dai log dei run, compresi i run IP
+  falliti) invece del log grezzo.
 - **Timing non rispettato:** `get_timing_summary()` e `get_timing_paths()`.
 - **Sessione bloccata:** `check_session_health(auto_recover=true)`.
 - **Log completo:** `get_messages()` o `generate_full_report()` +
@@ -130,9 +139,11 @@ create_project(name="ps7_leds", directory="/tmp/rp_projects")
 create_block_design(name="system")
 add_ip_to_bd(cell_name="processing_system7_0",
              vlnv="xilinx.com:ip:processing_system7:5.5")
+configure_bd_cell(cell_name="processing_system7_0",
+                  config={"CONFIG.PCW_IMPORT_BOARD_PRESET": "<RedPitaya-FPGA>/prj/Examples/Led_blink/cfg/red_pitaya.xml"})
 apply_ps7_preset(cell="processing_system7_0", apply_board_preset=false)
-# (Con board file Red Pitaya installato, apply_board_preset=true configura
-# DDR + MIO + clocks automaticamente. Senza, le PCW_* vanno settate a mano.)
+# Il preset red_pitaya.xml dei tutorial RedPitaya configura DDR + MIO + clock
+# del PS7; senza, le PCW_* andrebbero impostate a mano.
 
 add_ip_to_bd(cell_name="axi_gpio_0", vlnv="xilinx.com:ip:axi_gpio:2.0",
              config={"CONFIG.C_GPIO_WIDTH": "8",
