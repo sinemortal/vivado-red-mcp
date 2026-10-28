@@ -24,6 +24,6 @@ jobs:
         # drift (a declared tool with no handler, or vice versa) and import
         # errors on every push.
         run: |
-          python -c "from vivado_mcp.tools import ALL_TOOLS, ALL_HANDLERS; \
+          python -c "from vivado_red_mcp.tools import ALL_TOOLS, ALL_HANDLERS; \
             assert {t.name for t in ALL_TOOLS} == set(ALL_HANDLERS), 'registry drift'; \
             print(f'{len(ALL_TOOLS)} tools OK')"

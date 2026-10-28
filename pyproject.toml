@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vivado-mcp"
-version = "0.4.0"
+name = "vivado-red-mcp"
+version = "0.5.0"
 description = "MCP server that lets AI assistants drive AMD Vivado (projects, block design, synthesis, implementation, simulation, reports) with first-class Red Pitaya STEMlab 125-14 support (RTL and PS+PL builds, SSH deploy)"
 readme = "README.md"
 license = {text = "MIT"}
@@ -32,21 +32,21 @@ dependencies = [
 ]
 
 [project.scripts]
-vivado-mcp = "vivado_mcp:main"
+vivado-red-mcp = "vivado_red_mcp:main"
 
 [project.urls]
-Homepage = "https://github.com/sinemortal/vivado-mcp"
-Repository = "https://github.com/sinemortal/vivado-mcp"
-Issues = "https://github.com/sinemortal/vivado-mcp/issues"
+Homepage = "https://github.com/sinemortal/vivado-red-mcp"
+Repository = "https://github.com/sinemortal/vivado-red-mcp"
+Issues = "https://github.com/sinemortal/vivado-red-mcp/issues"
 
 # Since the repo root is the package itself, we map the package name to "."
 [tool.setuptools]
-packages = ["vivado_mcp", "vivado_mcp.tools"]
-package-dir = {"vivado_mcp" = ".", "vivado_mcp.tools" = "tools"}
+packages = ["vivado_red_mcp", "vivado_red_mcp.tools"]
+package-dir = {"vivado_red_mcp" = ".", "vivado_red_mcp.tools" = "tools"}
 
 # Include data files (board XDC, bundled docs, feature requests log)
 [tool.setuptools.package-data]
-vivado_mcp = [
+vivado_red_mcp = [
     "data/*.json",
     "data/boards/*.json",
     "data/boards/*.xdc",

@@ -1,6 +1,6 @@
 """Advanced reports — power, DRC, methodology, QoR, clock interaction.
 
-Each tool writes the full Vivado output to /tmp/vivado_mcp/ (cached with a
+Each tool writes the full Vivado output to /tmp/vivado_red_mcp/ (cached with a
 report_id) and returns structured parsed data plus a truncated inline preview.
 Use `read_report_section` with the returned report_id for the full text.
 """
@@ -25,7 +25,7 @@ TOOLS = [
         name="report_power",
         description=(
             "Run report_power and return parsed totals (total/dynamic/static W) + a "
-            "truncated raw block. Full output stored at /tmp/vivado_mcp/."
+            "truncated raw block. Full output stored at /tmp/vivado_red_mcp/."
         ),
         inputSchema={"type": "object", "properties": {}, "required": []},
     ),

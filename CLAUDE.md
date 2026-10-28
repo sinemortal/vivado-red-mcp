@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`vivado_mcp/` is an MCP (Model Context Protocol) server that exposes AMD/Xilinx
+`vivado_red_mcp/` is an MCP (Model Context Protocol) server that exposes AMD/Xilinx
 Vivado 2020.1 + Red Pitaya FPGA workflows as tools an AI assistant can drive.
 Forked from `coreyhahn/vivado_mcp` and heavily refactored — the original
 monolithic `server.py` was split into a `tools/` subpackage and extended with
@@ -21,11 +21,11 @@ Vivado 2026.1 (Windows).
 # From this repo root, editable install
 pip install -e .   # pins the MCP SDK to 1.x (mcp>=1.0,<2)
 
-# Console script registered: `vivado-mcp` (entry point: vivado_mcp:main)
+# Console script registered: `vivado-red-mcp` (entry point: vivado_red_mcp:main)
 # MCP transport: stdio (JSON-RPC over stdin/stdout)
 
 # Registry consistency check — every declared tool must have a handler:
-python -c "from vivado_mcp.tools import ALL_TOOLS, ALL_HANDLERS; \
+python -c "from vivado_red_mcp.tools import ALL_TOOLS, ALL_HANDLERS; \
   assert {t.name for t in ALL_TOOLS} == set(ALL_HANDLERS); \
   print(f'{len(ALL_TOOLS)} tools OK')"
 ```
@@ -35,13 +35,13 @@ changes live against Vivado.
 
 Register with Claude Code (user-global):
 ```bash
-claude mcp add --transport stdio --scope user vivado -- vivado-mcp
+claude mcp add --transport stdio --scope user vivado -- vivado-red-mcp
 ```
 
 ## Architecture
 
 ### Tool registry pattern
-Every domain lives in its own module under `vivado_mcp/tools/`. Each module
+Every domain lives in its own module under `vivado_red_mcp/tools/`. Each module
 exposes two top-level symbols:
 
 ```python
@@ -101,7 +101,7 @@ stays pristine. Custom designs: `rp_create_custom_project base=barebones`
 `prj/<name>/rtl/red_pitaya_top.sv` and call `rp_build_project`.
 
 ### Bundled documentation
-`vivado_mcp/data/docs/*.md` — topical references the MCP server can return
+`vivado_red_mcp/data/docs/*.md` — topical references the MCP server can return
 via `get_vivado_doc <topic>`. Topics are listed in `tools/docs.py::KNOWN_TOPICS`.
 When you add a topic you must update both `KNOWN_TOPICS` and the description
 of the `get_vivado_doc` tool.
@@ -145,12 +145,12 @@ tool already uses the absolute path. Default factory creds: `root` / `root`.
 
 ## Layout
 
-- `vivado_mcp/server.py` — MCP dispatcher (thin).
-- `vivado_mcp/vivado_session.py` — Vivado pexpect/wexpect session manager.
-- `vivado_mcp/parsers.py` — timing/utilization/messages/DRC/power parsers + `verify_run_status`, `truncate_response`.
-- `vivado_mcp/boards.py` — bundled board metadata loader.
-- `vivado_mcp/reports.py` — `/tmp/vivado_mcp` report file cache.
-- `vivado_mcp/tools/` — domain tool modules + `_common.py` helpers + `__init__.py` registry.
-- `vivado_mcp/data/boards/` — bundled XDC + JSON metadata for Red Pitaya 125-14.
-- `vivado_mcp/data/docs/` — markdown topics returned by `get_vivado_doc`.
+- `vivado_red_mcp/server.py` — MCP dispatcher (thin).
+- `vivado_red_mcp/vivado_session.py` — Vivado pexpect/wexpect session manager.
+- `vivado_red_mcp/parsers.py` — timing/utilization/messages/DRC/power parsers + `verify_run_status`, `truncate_response`.
+- `vivado_red_mcp/boards.py` — bundled board metadata loader.
+- `vivado_red_mcp/reports.py` — `/tmp/vivado_red_mcp` report file cache.
+- `vivado_red_mcp/tools/` — domain tool modules + `_common.py` helpers + `__init__.py` registry.
+- `vivado_red_mcp/data/boards/` — bundled XDC + JSON metadata for Red Pitaya 125-14.
+- `vivado_red_mcp/data/docs/` — markdown topics returned by `get_vivado_doc`.
 - `test_runs/` — build outputs from live tests (gitignored).

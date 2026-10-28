@@ -323,7 +323,7 @@ def _rp_fetch_repo(session, args):
     with tempfile.TemporaryDirectory() as td:
         zpath = Path(td) / "repo.zip"
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "vivado-mcp"})
+            req = urllib.request.Request(url, headers={"User-Agent": "vivado-red-mcp"})
             with urllib.request.urlopen(req, timeout=timeout) as resp, open(zpath, "wb") as f:
                 shutil.copyfileobj(resp, f)
         except Exception as ex:  # noqa: BLE001 - urllib raises a wide tree

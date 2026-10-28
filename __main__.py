@@ -2,10 +2,10 @@
 Entry point for running the Vivado MCP server as a module.
 
 This allows running the server with:
-    python -m vivado_mcp
+    python -m vivado_red_mcp
 
 Which is equivalent to:
-    vivado-mcp  (after pip install)
+    vivado-red-mcp  (after pip install)
 
 The server communicates via stdin/stdout using the MCP protocol,
 so it's typically launched by an MCP client like Claude Code rather

@@ -12,7 +12,7 @@ Architecture:
   - `list_tools` returns ALL_TOOLS, `call_tool` dispatches via ALL_HANDLERS,
     wrapping the dict result in TextContent.
 
-Entry point: `python -m vivado_mcp` (or `vivado-mcp` after pip install).
+Entry point: `python -m vivado_red_mcp` (or `vivado-red-mcp` after pip install).
 """
 
 from __future__ import annotations
@@ -76,16 +76,16 @@ def _start_autofetch_redpitaya() -> None:
             r = autofetch_redpitaya_repo()
             if r and r.get("success"):
                 print(
-                    f"[vivado-mcp] RedPitaya-FPGA: {r.get('status')} -> {r.get('repo_path')}",
+                    f"[vivado-red-mcp] RedPitaya-FPGA: {r.get('status')} -> {r.get('repo_path')}",
                     file=sys.stderr, flush=True,
                 )
             elif r:
                 print(
-                    f"[vivado-mcp] RedPitaya-FPGA autofetch failed: {r.get('error')}",
+                    f"[vivado-red-mcp] RedPitaya-FPGA autofetch failed: {r.get('error')}",
                     file=sys.stderr, flush=True,
                 )
         except Exception as ex:  # noqa: BLE001 - never crash the server thread
-            print(f"[vivado-mcp] RedPitaya-FPGA autofetch error: {ex}", file=sys.stderr, flush=True)
+            print(f"[vivado-red-mcp] RedPitaya-FPGA autofetch error: {ex}", file=sys.stderr, flush=True)
 
     threading.Thread(target=_run, name="rp-autofetch", daemon=True).start()
 

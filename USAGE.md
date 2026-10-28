@@ -14,20 +14,20 @@ it to `/dev/xdevcfg`.
 ## Prerequisites (Linux host)
 
 1. Vivado (2020.1, or 2025.x/2026.x with the free Basic Tier license loaded —
-   see the README), sourced in the shell that launches `vivado-mcp`:
+   see the README), sourced in the shell that launches `vivado-red-mcp`:
    ```bash
    source /opt/Xilinx/2020.1/Vivado/settings64.sh
    ```
    On Windows, put `<Vivado>in` on `PATH` or give Claude the full path of
    `vivado.bat`.
-2. `pip install -e .` inside the cloned `vivado-mcp/` directory.
+2. `pip install -e .` inside the cloned `vivado-red-mcp/` directory.
 3. Register the server with Claude Code:
    ```bash
-   claude mcp add --transport stdio --scope user vivado -- vivado-mcp
+   claude mcp add --transport stdio --scope user vivado -- vivado-red-mcp
    ```
    or add it to a project-level `.mcp.json`:
    ```json
-   { "mcpServers": { "vivado": { "type": "stdio", "command": "vivado-mcp" } } }
+   { "mcpServers": { "vivado": { "type": "stdio", "command": "vivado-red-mcp" } } }
    ```
 
 ## Typical one-shot flow

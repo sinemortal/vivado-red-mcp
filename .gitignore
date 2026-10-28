@@ -44,6 +44,9 @@ venv/
 .DS_Store
 Thumbs.db
 
+# Runtime data written by the request_feature tool
+data/feature_requests.json
+
 # Local Claude state
 .claude/
 

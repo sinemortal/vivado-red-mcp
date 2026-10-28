@@ -8,7 +8,7 @@
 # Redistributed under the 3-clause BSD license (see THIRD-PARTY-NOTICES.md):
 #   Copyright (c) 2014, Red Pitaya, d.o.o.  All rights reserved.
 #
-# Bundled with vivado_mcp for use with `create_redpitaya_project_rtl`
+# Bundled with vivado_red_mcp for use with `create_redpitaya_project_rtl`
 # (xdc_variant="full"). Top-level port names match the official Red Pitaya
 # reference design so user RTL can declare exactly the subset of ports it
 # uses — Vivado will flag the unused ones as "no load" warnings (harmless).

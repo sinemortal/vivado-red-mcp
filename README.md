@@ -1,4 +1,6 @@
-# Vivado MCP Server — Red Pitaya edition
+# vivado-red-mcp — Vivado MCP server, Red Pitaya edition
+
+<!-- mcp-name: io.github.sinemortal/vivado-red-mcp -->
 
 An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant such as
 Claude drive **AMD/Xilinx Vivado** directly: create projects, build block designs,
@@ -14,7 +16,10 @@ RedPitaya-FPGA PS+PL (ARM + FPGA) backbone, and deploy it over SSH.
 > heavily extended (93 tools): block design / IP Integrator, IP catalog, Hardware
 > Manager, advanced reports, Red Pitaya RTL and PS+PL flows, SSH deploy.
 
-**Current version: 0.4.0** — see [What's new](#whats-new-in-040) and [`CHANGELOG.md`](CHANGELOG.md).
+**Current version: 0.5.0** — see [What's new](#whats-new-in-050) and [`CHANGELOG.md`](CHANGELOG.md).
+
+> Not to be confused with the unrelated `vivado-mcp` package on PyPI. This project is
+> `vivado-red-mcp`: Python module `vivado_red_mcp`, command `vivado-red-mcp`.
 
 ---
 
@@ -26,7 +31,7 @@ RedPitaya-FPGA PS+PL (ARM + FPGA) backbone, and deploy it over SSH.
 - [Installation](#installation)
 - [First steps](#first-steps)
 - [Red Pitaya](#red-pitaya)
-- [What's new in 0.4.0](#whats-new-in-040)
+- [What's new in 0.5.0](#whats-new-in-050)
 - [Troubleshooting](#troubleshooting)
 - [Available tools](#available-tools)
 - [Architecture](#architecture)
@@ -83,7 +88,7 @@ bitstreams** to the tutorials' own scripts.
    - on `PATH` (Linux: `source <Vivado>/settings64.sh`; Windows: add
      `<Vivado>\bin` to `PATH`), or
    - by telling Claude the full path, which it passes to `start_session`
-     (e.g. `D:\AMDDesignTools\2026.1\Vivado\bin\vivado.bat`).
+     (e.g. `C:\AMDDesignTools\2026.1\Vivado\bin\vivado.bat`).
 
 `pexpect` (Linux/macOS) or `pywinpty` (Windows) is installed automatically.
 
@@ -92,8 +97,8 @@ bitstreams** to the tutorials' own scripts.
 ### 1. Get the code and install it
 
 ```bash
-git clone https://github.com/sinemortal/vivado-mcp.git
-cd vivado-mcp
+git clone https://github.com/sinemortal/vivado-red-mcp.git
+cd vivado-red-mcp
 python -m venv .venv
 # Windows:      .venv\Scripts\activate
 # Linux/macOS:  source .venv/bin/activate
@@ -108,17 +113,17 @@ would not start (`'Server' object has no attribute 'list_tools'`).
 Once, for all your projects:
 
 ```bash
-claude mcp add --transport stdio --scope user vivado -- vivado-mcp
+claude mcp add --transport stdio --scope user vivado -- vivado-red-mcp
 ```
 
-If `vivado-mcp` is not on `PATH` when Claude Code starts (typical with a virtual
+If `vivado-red-mcp` is not on `PATH` when Claude Code starts (typical with a virtual
 environment), point to the venv's Python instead:
 
 ```bash
 # Windows
-claude mcp add --transport stdio --scope user vivado -- "C:\path\to\vivado-mcp\.venv\Scripts\python.exe" -m vivado_mcp
+claude mcp add --transport stdio --scope user vivado -- "C:\path\to\vivado-red-mcp\.venv\Scripts\python.exe" -m vivado_red_mcp
 # Linux/macOS
-claude mcp add --transport stdio --scope user vivado -- /path/to/vivado-mcp/.venv/bin/python -m vivado_mcp
+claude mcp add --transport stdio --scope user vivado -- /path/to/vivado-red-mcp/.venv/bin/python -m vivado_red_mcp
 ```
 
 Or share it with a single project through a `.mcp.json` at the project root:
@@ -128,7 +133,7 @@ Or share it with a single project through a `.mcp.json` at the project root:
   "mcpServers": {
     "vivado": {
       "type": "stdio",
-      "command": "vivado-mcp"
+      "command": "vivado-red-mcp"
     }
   }
 }
@@ -202,7 +207,14 @@ their own `cfg/` files when rebuilding them.
 
 More Italian prompt examples and the step-by-step low-level flow: [`USAGE.md`](USAGE.md).
 
-## What's new in 0.4.0
+## What's new in 0.5.0
+
+**Renamed to `vivado-red-mcp`** (package, Python module `vivado_red_mcp`, command
+`vivado-red-mcp`), so it no longer clashes with the unrelated `vivado-mcp` package on
+PyPI. If you installed an earlier version, reinstall it and re-register it with
+Claude Code using the new command (see [Installation](#installation)).
+
+### 0.4.0
 
 **Works on Vivado 2026.1 and with the current RedPitaya-FPGA repo.**
 
@@ -236,7 +248,7 @@ New tools: `create_bd_port`, `add_module_to_bd`, `configure_bd_cell`,
 | `start_session` fails with `valid license was not found` | Vivado 2025.x/2026.x needs a license file even for the free edition — see [Requirements](#requirements) |
 | `start_session` cannot find Vivado | Put `<Vivado>/bin` on `PATH` or give Claude the full path of `vivado.bat` / `vivado` |
 | Server does not start: `'Server' object has no attribute 'list_tools'` | MCP SDK 2.x installed. Run `pip install "mcp>=1.0,<2"` |
-| `claude mcp list` shows `vivado` as failed | `vivado-mcp` not on `PATH` for Claude Code: register it with the venv's Python (see [Installation](#2-register-it-with-claude-code)) |
+| `claude mcp list` shows `vivado` as failed | `vivado-red-mcp` not on `PATH` for Claude Code: register it with the venv's Python (see [Installation](#2-register-it-with-claude-code)) |
 | A RedPitaya example fails synthesis with `red_pitaya_pll ... port does not exist` | Upstream issue in `prj/Examples/Simple_moving_average` (it pulls in `rtl_250`), not in this server |
 | Occasional `Could not open 'C' for writing` in an IP run | Intermittent Vivado issue with parallel out-of-context runs; re-run synthesis |
 | Long paths on Windows | Keep projects in short paths; Vivado and IP generation hit the 260-character limit |
@@ -359,7 +371,7 @@ Report tools open the latest completed run automatically if no design is open.
 
 ```
 ┌─────────────────┐     MCP (JSON-RPC)     ┌─────────────────┐
-│   Claude Code   │◄──────over stdio──────►│  vivado-mcp     │
+│   Claude Code   │◄──────over stdio──────►│  vivado-red-mcp     │
 │   (AI client)   │                        │  server         │
 └─────────────────┘                        └────────┬────────┘
                                                     │ pexpect (Linux)

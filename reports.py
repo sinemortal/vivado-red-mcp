@@ -1,6 +1,6 @@
 """Report file management — temp dir, IDs, cache.
 
-Reports too large for inline response (>8KB) get written to /tmp/vivado_mcp/
+Reports too large for inline response (>8KB) get written to /tmp/vivado_red_mcp/
 and referenced by an 8-char ID. Old files are GC'd after REPORT_CACHE_HOURS.
 """
 
@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-REPORTS_DIR = Path("/tmp/vivado_mcp")
+REPORTS_DIR = Path("/tmp/vivado_red_mcp")
 REPORT_CACHE_HOURS = 1
 
 # In-memory cache: report_id -> {file_path, report_type, created, size_bytes, line_count}

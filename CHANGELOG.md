@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0 — 2026-10-28
+
+### Changed (breaking)
+- Renamed from `vivado-mcp` to **`vivado-red-mcp`**: distribution name, Python
+  module (`vivado_mcp` -> `vivado_red_mcp`) and console command (`vivado-mcp` ->
+  `vivado-red-mcp`). The old name is taken on PyPI by an unrelated project.
+  Reinstall and re-register with Claude Code:
+  `claude mcp add --transport stdio --scope user vivado -- vivado-red-mcp`.
+
+### Added
+- `server.json` for the official MCP Registry
+  (`io.github.sinemortal/vivado-red-mcp`).
+
+### Fixed
+- `data/feature_requests.json` (written by `request_feature`) is git-ignored, so
+  local feature requests cannot be committed by accident.
+
 ## 0.4.0 — 2026-10-28
 
 Validated end-to-end on **Vivado 2026.1 (Windows 11)**: session, Red Pitaya RTL
@@ -45,7 +62,7 @@ tutorials' own scripts.
   as well as the legacy one. The workspace copy (never the source checkout) is
   patched so exported block-design/IP scripts run on the installed Vivado and
   the git-hash stamp works without git.
-- Repository links now point to `sinemortal/vivado-mcp`.
+- Repository links fixed (`sinemola` -> `sinemortal`).
 
 ### Added
 - `create_bd_port` — scalar, vector and interface block-design ports.

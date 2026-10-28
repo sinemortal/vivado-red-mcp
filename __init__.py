@@ -22,7 +22,7 @@ Installation:
         "mcpServers": {
             "vivado": {
                 "command": "python",
-                "args": ["-m", "vivado_mcp"]
+                "args": ["-m", "vivado_red_mcp"]
             }
         }
     }
@@ -31,7 +31,7 @@ Usage:
     The server is typically launched by an MCP client (like Claude Code).
     For manual testing:
 
-    python -m vivado_mcp
+    python -m vivado_red_mcp
 
 Example workflow (from an AI assistant):
     1. start_session - Launch Vivado
@@ -55,21 +55,21 @@ import asyncio
 from .server import main as _async_main
 
 # Package version
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 
 def main():
     """
-    Entry point for the vivado-mcp console script.
+    Entry point for the vivado-red-mcp console script.
 
     This function is called when running:
-    - vivado-mcp (after pip install)
-    - python -m vivado_mcp
+    - vivado-red-mcp (after pip install)
+    - python -m vivado_red_mcp
 
     It starts the async MCP server event loop.
     """
     asyncio.run(_async_main())
 
 
-# Public API - what gets imported with "from vivado_mcp import *"
+# Public API - what gets imported with "from vivado_red_mcp import *"
 __all__ = ["main", "__version__"]
