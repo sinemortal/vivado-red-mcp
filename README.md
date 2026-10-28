@@ -29,9 +29,15 @@ on-board deployment), not just generic Vivado control.
 ## Requirements
 
 - Python 3.10+
-- AMD/Xilinx Vivado installed — **developed and validated against Vivado 2020.1**
-  (the version the Red Pitaya STEMlab 125-14 toolchain targets). Generic Vivado
-  tools work on newer versions too, but the Red Pitaya flows assume 2020.1.
+- AMD/Xilinx Vivado installed — originally developed against **Vivado 2020.1**,
+  also validated end-to-end on **Vivado 2026.1** (Windows): session, RTL and
+  PS+PL Red Pitaya builds, reports, xsim and block design. The PS+PL flow works
+  with both the current RedPitaya-FPGA `master` (targets 2025.1) and legacy
+  2020.1-era checkouts; the workspace copy is patched to run on the installed
+  release (see `get_vivado_doc redpitaya_ps_pl_flow`).
+- Vivado 2025.x/2026.x need a license file even for the free edition: generate a
+  node-locked **Vivado Basic Tier** (no charge) license on the AMD licensing site
+  and load it with the Vivado License Manager (`vlm`).
 - Vivado must be in your PATH, or specify the full path when starting a session
 - **Linux/macOS**: uses `pexpect` (installed automatically)
 - **Windows**: uses a `pywinpty` (ConPTY) shim (installed automatically). `vivado.bat` must be
@@ -44,7 +50,7 @@ on-board deployment), not just generic Vivado control.
 ### From GitHub
 
 ```bash
-git clone https://github.com/sinemola/vivado-mcp.git
+git clone https://github.com/sinemortal/vivado-mcp.git
 cd vivado-mcp
 pip install -e .
 ```
@@ -132,7 +138,8 @@ Bundled data under `data/boards/`:
 ### Design Flow
 - `run_synthesis` - Run synthesis
 - `run_implementation` - Run place and route
-- `generate_bitstream` - Generate bitstream
+- `generate_bitstream` - Generate bitstream (verified run status + `.bit` path)
+- `set_run_strategy` - Set the synth/impl run strategy
 
 ### Reports & Analysis
 - `get_timing_summary` - Get timing summary (WNS, TNS, WHS, THS)
@@ -168,6 +175,9 @@ Bundled data under `data/boards/`:
 - `save_bd_design` / `close_bd_design` - Persist or close the BD
 - `list_bd_cells` - List cells in the current BD
 - `add_ip_to_bd` - Add an IP core (VLNV) and apply `CONFIG.*` properties
+- `add_module_to_bd` - Add an RTL module as a module-reference cell
+- `configure_bd_cell` - Set `CONFIG.*` on an existing cell (e.g. PS7 board preset import)
+- `create_bd_port` - Create scalar / vector / interface ports on the BD
 - `connect_bd_net` / `connect_bd_intf_net` - Wire scalar / AXI pins
 - `auto_connect_axi` - `apply_bd_automation` for AXI master ↔ slave
 - `apply_ps7_preset` - Apply Zynq PS7 board automation (FIXED_IO/DDR/clocks)

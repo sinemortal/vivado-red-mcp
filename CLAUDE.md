@@ -12,7 +12,8 @@ Block Design, IP catalog, Hardware Manager, advanced reports, RedPitaya
 PS+PL flow, and SSH deploy.
 
 Targets: Red Pitaya STEMlab 125-14 (Zynq xc7z010clg400-1). Vivado 2020.1 on
-Linux (`settings64.sh`) or Windows (`vivado.bat`).
+Linux (`settings64.sh`) or Windows (`vivado.bat`); also validated end-to-end on
+Vivado 2026.1 (Windows).
 
 ## Install & verify
 
@@ -59,10 +60,25 @@ drift becomes a startup error, not a silent runtime failure.
 
 ### Vivado session
 `vivado_session.py` runs a singleton persistent Vivado TCL shell via pexpect
-(Linux) or wexpect (Windows). Spawned lazily by `start_session`. ~30 s cold
+(Linux) or a pywinpty/ConPTY shim (`_vivado_subprocess_shim.py`, Windows).
+Spawned lazily by `start_session`. ~30 s cold
 start. Output capture is prompt-based (`Vivado%`); error classification in
 `classify_output_errors()` distinguishes real TCL errors from report text that
 just happens to contain the word "ERROR".
+
+On Windows the child env drops `NoDefaultCurrentDirectoryInExePath`: Claude
+Code sets it for its children, and with it Vivado cannot spawn the scripts it
+generates by bare name (xsim `compile.bat` → "Spawn failed: file not found").
+If Vivado exits during startup (e.g. no license), `start()` returns its output.
+
+Multi-line commands are sent to `run_tcl` as one line that base64-decodes and
+`eval`s the script inside `catch` (the console would otherwise drop the
+newlines on Windows); a begin marker separates output from the echo, and a
+caught error sets `success=False` deterministically.
+
+Report tools go through `tools/_common.py::run_design_cmd`: on "No open
+design" it opens the latest completed run (impl_1, else synth_1) and retries,
+so reports work right after `run_implementation` / `generate_bitstream`.
 
 Run status verification uses `verify_run_status()` in `parsers.py` — queries
 the run's `STATUS`/`PROGRESS` properties as ground truth instead of parsing

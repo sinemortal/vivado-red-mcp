@@ -85,6 +85,78 @@ TOOLS = [
         },
     ),
     Tool(
+        name="create_bd_port",
+        description=(
+            "Create a top-level port on the current block design. Scalar or vector "
+            "(`from`/`to`) via create_bd_port, or an interface port when `vlnv` is "
+            "given (create_bd_intf_port, e.g. the XADC "
+            "'xilinx.com:interface:diff_analog_io_rtl:1.0'). Port names must match "
+            "the constraints (XDC) of the board."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Port name (e.g. 'led_o')"},
+                "direction": {
+                    "type": "string",
+                    "enum": ["I", "O", "IO"],
+                    "description": "Direction for a plain port (default: I)",
+                },
+                "from": {"type": "integer", "description": "MSB index for a vector port (e.g. 7)"},
+                "to": {"type": "integer", "description": "LSB index for a vector port (default: 0)"},
+                "type": {
+                    "type": "string",
+                    "description": "Optional port type: clk, rst, ce, intr, data, undef",
+                },
+                "vlnv": {
+                    "type": "string",
+                    "description": "Interface VLNV: creates an interface port instead",
+                },
+                "mode": {
+                    "type": "string",
+                    "description": "Interface mode (default: Slave): Master, Slave, ...",
+                },
+            },
+            "required": ["name"],
+        },
+    ),
+    Tool(
+        name="add_module_to_bd",
+        description=(
+            "Add an RTL module (Verilog/VHDL already in the project, see add_sources) "
+            "to the current block design as a module-reference cell "
+            "(`create_bd_cell -type module -reference`). Optional `config` sets its "
+            "parameters, e.g. {'CONFIG.WIDTH': '8'}; string parameters keep their "
+            "quotes, e.g. {'CONFIG.init': '\"0011\"'}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "module": {"type": "string", "description": "Top module name of the RTL"},
+                "cell_name": {"type": "string", "description": "Instance name in the BD"},
+                "config": {"type": "object", "description": "Dict of CONFIG.* parameters"},
+            },
+            "required": ["module", "cell_name"],
+        },
+    ),
+    Tool(
+        name="configure_bd_cell",
+        description=(
+            "Set CONFIG.* properties on an existing block-design cell "
+            "(set_property -dict). Use for settings that must be applied after "
+            "creation or in a separate step, e.g. importing a PS7 board preset: "
+            "{'CONFIG.PCW_IMPORT_BOARD_PRESET': '<path>/red_pitaya.xml'}."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "cell_name": {"type": "string"},
+                "config": {"type": "object", "description": "Dict of CONFIG.* properties"},
+            },
+            "required": ["cell_name", "config"],
+        },
+    ),
+    Tool(
         name="connect_bd_net",
         description="Connect two scalar pins/ports in the current block design.",
         inputSchema={
@@ -249,10 +321,7 @@ def _add_ip_to_bd(session, args):
 
     if config:
         # Build `-dict {KEY VALUE KEY VALUE ...}` — Vivado expects bracketed list
-        kv = " ".join(f"{k} {{{v}}}" for k, v in config.items())
-        cr = session.run_tcl(
-            f"set_property -dict {{{kv}}} [get_bd_cells {cell}]", timeout_override=60
-        )
+        cr = session.run_tcl(_config_cmd(cell, config), timeout_override=60)
         if not cr.success:
             return {
                 "success": False,
@@ -262,6 +331,72 @@ def _add_ip_to_bd(session, args):
             }
 
     return {"success": True, "cell": cell, "vlnv": vlnv, "config_applied": len(config)}
+
+
+def _config_cmd(cell: str, config: dict) -> str:
+    kv = " ".join(f"{k} {{{v}}}" for k, v in config.items())
+    return f"set_property -dict {{{kv}}} [get_bd_cells {{{cell}}}]"
+
+
+def _create_bd_port(session, args):
+    if (e := require_project_open(session)):
+        return e
+    if (e := require_args(args, "name")):
+        return e
+    name = args["name"]
+    if args.get("vlnv"):
+        mode = args.get("mode", "Slave")
+        cmd = f"create_bd_intf_port -mode {mode} -vlnv {args['vlnv']} {{{name}}}"
+    else:
+        direction = args.get("direction", "I")
+        if direction not in ("I", "O", "IO"):
+            return err(f"direction must be I, O or IO, got {direction!r}")
+        cmd = f"create_bd_port -dir {direction}"
+        if args.get("from") is not None:
+            cmd += f" -from {int(args['from'])} -to {int(args.get('to', 0))}"
+        if args.get("type"):
+            cmd += f" -type {args['type']}"
+        cmd += f" {{{name}}}"
+    r = session.run_tcl(cmd, timeout_override=30)
+    if not r.success:
+        return err(r.output, command=cmd)
+    return {"success": True, "port": name, "command": cmd}
+
+
+def _add_module_to_bd(session, args):
+    if (e := require_project_open(session)):
+        return e
+    if (e := require_args(args, "module", "cell_name")):
+        return e
+    cell = args["cell_name"]
+    r = session.run_tcl(
+        f"create_bd_cell -type module -reference {{{args['module']}}} {{{cell}}}",
+        timeout_override=120,
+    )
+    if not r.success:
+        return {
+            "success": False,
+            "stage": "create_bd_cell",
+            "error": r.output,
+            "hint": "the module's source must be in the project first (add_sources)",
+        }
+    config = args.get("config") or {}
+    if config:
+        cr = session.run_tcl(_config_cmd(cell, config), timeout_override=60)
+        if not cr.success:
+            return {"success": False, "stage": "set_property", "error": cr.output, "cell": cell}
+    return {"success": True, "cell": cell, "module": args["module"], "config_applied": len(config)}
+
+
+def _configure_bd_cell(session, args):
+    if (e := require_project_open(session)):
+        return e
+    if (e := require_args(args, "cell_name", "config")):
+        return e
+    r = session.run_tcl(_config_cmd(args["cell_name"], args["config"]), timeout_override=120)
+    if not r.success:
+        return err(r.output, cell=args["cell_name"])
+    return {"success": True, "cell": args["cell_name"], "config_applied": len(args["config"])}
 
 
 def _connect_bd_net(session, args):
@@ -446,6 +581,9 @@ HANDLERS = {
     "close_bd_design": _close_bd,
     "list_bd_cells": _list_bd_cells,
     "add_ip_to_bd": _add_ip_to_bd,
+    "create_bd_port": _create_bd_port,
+    "add_module_to_bd": _add_module_to_bd,
+    "configure_bd_cell": _configure_bd_cell,
     "connect_bd_net": _connect_bd_net,
     "connect_bd_intf_net": _connect_bd_intf_net,
     "auto_connect_axi": _auto_connect_axi,

@@ -9,7 +9,12 @@ from pathlib import Path
 from mcp.types import Tool
 
 from ..boards import DEFAULT_PART, list_bundled_boards, load_board_info, resolve_board_xdc
-from ..parsers import truncate_response, verify_run_status
+from ..parsers import (
+    parse_timing_summary,
+    parse_utilization,
+    truncate_response,
+    verify_run_status,
+)
 from ._common import err, require_args, require_project_open
 
 TOOLS = [
@@ -49,7 +54,8 @@ TOOLS = [
     Tool(
         name="get_synthesis_errors_parsed",
         description=(
-            "Return structured errors and critical warnings from a run (default: synth_1). "
+            "Return structured errors and critical warnings from a run's log (default: "
+            "synth_1), plus those of every failed run (e.g. out-of-context IP runs). "
             "Use after run_synthesis fails to get a clean actionable list."
         ),
         inputSchema={
@@ -172,49 +178,75 @@ def _generate_cfgmem(session, args):
     return write_cfgmem(session, bit_file, args.get("output"))
 
 
+_MSG_RE = re.compile(
+    r"^(?P<sev>ERROR|CRITICAL WARNING)\s*:\s*"
+    r"(?:\[(?P<code>[^\]]+)\]\s*)?"
+    r"(?P<msg>.*?)"
+    r"(?:\s*\[(?P<loc>[^\]]+)\])?$"
+)
+
+
 def _get_synthesis_errors_parsed(session, args):
     if (e := require_project_open(session)):
         return e
     run = args.get("run", "synth_1")
     max_items = args.get("max_items", 50)
-    tcl = (
-        f'set msgs [get_messages -severity {{ERROR}} -severity {{CRITICAL WARNING}}]; '
-        f'if {{[llength $msgs] == 0}} {{ puts "NO_MESSAGES" }} else {{ '
-        f'foreach m $msgs {{ puts "MSG|$m" }} }}'
+
+    # launch_runs executes each run in its own Vivado process, so its errors
+    # are only in the run's log, not in this session's get_messages. Read the
+    # log of the requested run plus every failed run (out-of-context IP runs
+    # fail on their own and stall synth_1 without an error of its own).
+    r = session.run_tcl(
+        f'foreach r [get_runs] {{ set st [get_property STATUS $r]; '
+        f'if {{$r eq {{{run}}} || [string match -nocase "*error*" $st] || '
+        f'[string match -nocase "*failed*" $st]}} '
+        f'{{ puts "RUN|$r|[get_property DIRECTORY $r]|$st" }} }}',
+        timeout_override=60,
     )
-    r = session.run_tcl(tcl, timeout_override=60)
+    runs = []
+    for line in r.output.splitlines():
+        if line.startswith("RUN|"):
+            _, name, directory, status = (line.split("|", 3) + [""])[:4]
+            runs.append((name, Path(directory), status))
+    if not any(name == run for name, _, _ in runs):
+        return err(f"run not found: {run}", output=r.output)
 
     errors: list[dict] = []
     warnings: list[dict] = []
-    for line in r.output.splitlines():
-        if not line.startswith("MSG|"):
+    logs: dict[str, str] = {}
+    seen = set()
+    for name, directory, status in runs:
+        log = directory / "runme.log"
+        if not log.is_file():
             continue
-        body = line[4:].strip()
-        m = re.match(
-            r"(?P<sev>ERROR|CRITICAL WARNING|WARNING)\s*:\s*"
-            r"(?:\[(?P<code>[^\]]+)\]\s*)?"
-            r"(?P<msg>.*?)"
-            r"(?:\s*\[(?P<loc>[^\]]+)\])?$",
-            body,
-        )
-        entry = {
-            "severity": m.group("sev") if m else "UNKNOWN",
-            "code": m.group("code") if m else None,
-            "message": m.group("msg") if m else body,
-            "location": m.group("loc") if m else None,
-        }
-        (errors if entry["severity"] == "ERROR" else warnings).append(entry)
-        if len(errors) + len(warnings) >= max_items:
-            break
+        logs[name] = str(log)
+        for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = _MSG_RE.match(line.strip())
+            if not m or (name, line) in seen:
+                continue
+            seen.add((name, line))
+            entry = {
+                "run": name,
+                "severity": m.group("sev"),
+                "code": m.group("code"),
+                "message": m.group("msg"),
+                "location": m.group("loc"),
+            }
+            (errors if entry["severity"] == "ERROR" else warnings).append(entry)
 
+    total = len(errors) + len(warnings)
+    errors = errors[:max_items]
+    warnings = warnings[: max(0, max_items - len(errors))]
     return {
         "success": True,
         "run": run,
+        "runs_checked": {name: status for name, _, status in runs},
+        "logs": logs,
         "error_count": len(errors),
         "warning_count": len(warnings),
         "errors": errors,
         "warnings": warnings,
-        "truncated": (len(errors) + len(warnings)) >= max_items,
+        "truncated": total > max_items,
     }
 
 
@@ -394,6 +426,10 @@ def _create_redpitaya_project_rtl(session, args):
         "xdc_variant": xdc_variant,
         "xdc_files": xdc_paths,
         "elapsed_seconds": round(elapsed_s, 1),
+        # The raw report opens with ~2 KB of timer settings, so the truncated
+        # text alone rarely reaches the WNS/WHS table: return parsed values too.
+        "timing_summary": {k: v for k, v in parse_timing_summary(timing.output).items() if k != "raw"},
+        "utilization": {k: v for k, v in parse_utilization(util.output).items() if k != "raw"},
         "timing_summary_raw": truncate_response(timing.output, 2000),
         "utilization_raw": truncate_response(util.output, 2000),
         "deploy_hint": (

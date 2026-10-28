@@ -9,7 +9,7 @@ from pathlib import Path
 from mcp.types import Tool
 
 from ..reports import REPORTS_DIR, cache_report, ensure_reports_dir, generate_report_id, lookup_report
-from ._common import err, require_project_open
+from ._common import err, require_project_open, run_design_cmd
 
 TOOLS = [
     Tool(
@@ -102,7 +102,7 @@ def _generate_full_report(session, args):
         base_cmd = base_cmd.replace("-max_paths 100", f"-max_paths {options['num_paths']}")
 
     cmd = f"{base_cmd} -file {{{file_path}}}"
-    r = session.run_tcl(cmd)
+    r = run_design_cmd(session, cmd)
     if not r.success:
         return {"success": False, "error": r.output, "elapsed_ms": r.elapsed_ms}
 

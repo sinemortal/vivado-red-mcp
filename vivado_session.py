@@ -47,6 +47,8 @@ Author: Created with Claude (Anthropic)
 License: MIT
 """
 
+import base64
+import os
 import sys
 import shutil
 
@@ -278,6 +280,23 @@ class VivadoSession:
             "command_history": []        # Last 100 commands (for debugging)
         }
 
+    def _startup_output_tail(self, max_chars: int = 2000) -> str:
+        """Return Vivado's last startup output (e.g. a license error) for error messages.
+
+        Also reaps the half-started child so a retry starts from a clean slate.
+        """
+        before = ""
+        if self.child is not None:
+            before = (getattr(self.child, "before", "") or "").strip()
+            try:
+                self.child.close(force=True)
+            except Exception:
+                pass
+            self.child = None
+        if not before:
+            return ""
+        return "\nVivado output:\n" + before[-max_chars:]
+
     def start(self) -> CommandResult:
         """
         Start the Vivado TCL session.
@@ -328,12 +347,20 @@ class VivadoSession:
                 # wexpect does not support echo=False; echoed commands are
                 # stripped downstream in run_tcl(). codepage=65001 forces
                 # UTF-8 on the child console to avoid cp1252 mojibake.
+                #
+                # Drop NoDefaultCurrentDirectoryInExePath (set by Claude Code
+                # for its children): with it, Vivado cannot spawn the scripts
+                # it generates by bare name (e.g. xsim's compile.bat fails
+                # with "Spawn failed: file not found").
+                child_env = {k: v for k, v in os.environ.items()
+                             if k.lower() != "nodefaultcurrentdirectoryinexepath"}
                 self.child = pexpect.spawn(
                     executable,
                     spawn_args,
                     encoding="utf-8",
                     timeout=self.timeout,
                     codepage=65001,
+                    env=child_env,
                 )
             else:
                 self.child = pexpect.spawn(
@@ -349,7 +376,7 @@ class VivadoSession:
             # directly for the Vivado% prompt if it never appears.
             try:
                 self.child.expect("Start of session", timeout=120)
-            except (pexpect.TIMEOUT, pexpect.EOF):
+            except pexpect.TIMEOUT:
                 if not _IS_WINDOWS:
                     raise
                 # Fall through: the prompt handshake below will confirm readiness.
@@ -388,18 +415,20 @@ class VivadoSession:
             elapsed = (time.time() - start_time) * 1000
             return CommandResult(
                 command="start",
-                output="Failed to start Vivado: Timeout waiting for startup",
+                output="Failed to start Vivado: Timeout waiting for startup"
+                       + self._startup_output_tail(),
                 return_value="1",
                 success=False,
                 elapsed_ms=elapsed
             )
         except Exception as e:
-            # Other errors (file not found, permissions, etc.)
+            # Vivado exited during startup (missing license, bad install, ...)
+            # or could not be spawned at all (file not found, permissions).
             self.is_running = False
             elapsed = (time.time() - start_time) * 1000
             return CommandResult(
                 command="start",
-                output=f"Failed to start Vivado: {str(e)}",
+                output=f"Failed to start Vivado: {str(e)}" + self._startup_output_tail(),
                 return_value="1",
                 success=False,
                 elapsed_ms=elapsed
@@ -466,8 +495,32 @@ class VivadoSession:
                 except (pexpect.TIMEOUT, pexpect.EOF):
                     pass  # Expected - buffer was empty
 
-                # Send the command to Vivado
-                self.child.sendline(command)
+                # Send the command to Vivado. A multi-line script cannot be
+                # typed into the console as-is: the Windows ConPTY drops the
+                # embedded newlines (`set x 1\nset y 2` arrives as
+                # `set x 1set y 2`), and on any platform each line would
+                # produce its own prompt. Send it as one line that decodes and
+                # evals the exact text instead. The begin marker is assembled
+                # at runtime so the echoed line never contains it; output is
+                # whatever follows it, even when the long echo wraps.
+                marker = None
+                send_cmd = command
+                if "\n" in command or "\r" in command:
+                    script = command.replace("\r\n", "\n").replace("\r", "\n")
+                    b64 = base64.b64encode(script.encode("utf-8")).decode("ascii")
+                    marker = "MCP_OUTPUT_BEGIN"
+                    # catch gives a deterministic failure signal (the
+                    # text heuristics in classify_output_errors miss a plain
+                    # `error ...`); the error is then re-raised so Vivado
+                    # still prints its message.
+                    send_cmd = (
+                        "puts [string cat MCP_OUTPUT _BEGIN]; "
+                        "if {[catch {eval [encoding convertfrom utf-8 "
+                        f"[binary decode base64 {b64}]]}} mcp_r mcp_o]}} "
+                        "{puts [string cat MCP_TCL _ERROR]; return -options $mcp_o $mcp_r} "
+                        "else {set mcp_r}"
+                    )
+                self.child.sendline(send_cmd)
 
                 # Wait for the Vivado prompt indicating command completion
                 # The prompt appears after Vivado finishes processing
@@ -488,15 +541,16 @@ class VivadoSession:
                 found_command = False
 
                 # Normalize command for matching (handle whitespace differences)
-                cmd_normalized = command.strip()
+                cmd_normalized = send_cmd.strip()
 
                 for line in lines:
                     stripped = line.strip()
 
-                    # Skip lines until we find the echoed command
-                    # Everything before is leftover from previous operations
+                    # Skip lines until we find the echoed command (or, for a
+                    # multi-line script, the begin marker). Everything before
+                    # is the echo or leftover from previous operations.
                     if not found_command:
-                        if cmd_normalized in stripped:
+                        if (stripped == marker) if marker else (cmd_normalized in stripped):
                             found_command = True
                         continue
 
@@ -521,6 +575,9 @@ class VivadoSession:
                         if s and not s.startswith('Vivado%')
                     ]
 
+                script_failed = marker is not None and "MCP_TCL_ERROR" in clean_lines
+                if script_failed:
+                    clean_lines = [l for l in clean_lines if l != "MCP_TCL_ERROR"]
                 output = '\n'.join(clean_lines).strip()
 
                 elapsed = (time.time() - start_time) * 1000
@@ -528,7 +585,7 @@ class VivadoSession:
                 # Use smart error classification to detect real errors
                 # This avoids false positives from report content like "Timing ERROR: 0"
                 classification = classify_output_errors(output, command)
-                success = not classification.is_actual_failure
+                success = not classification.is_actual_failure and not script_failed
 
                 # Update statistics
                 self.stats["commands_run"] += 1

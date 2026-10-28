@@ -1,16 +1,24 @@
 """RedPitaya-FPGA repository integration — PS+PL build flow.
 
 These tools drive the canonical RedPitaya build flow instead of rebuilding the
-Zynq PS7 from scratch. The RedPitaya-FPGA repo ships `prj/<name>/ip/systemZ10.tcl`
-— a `write_bd_tcl` export of a fully-configured, board-validated PS7 block design
-(DDR3, MIO, clocks). The build script sources it verbatim, so the PS backbone is
-guaranteed-good.
+Zynq PS7 from scratch. The RedPitaya-FPGA repo ships `prj/<name>/ip/system.tcl`
+(legacy repos: `systemZ10.tcl`) — a `write_bd_tcl` export of a fully-configured,
+board-validated PS7 block design (DDR3, MIO, clocks). The build script sources it
+verbatim, so the PS backbone is guaranteed-good.
+
+Two repo layouts are supported:
+  - current upstream (Vivado 2025.1+): red_pitaya_vivado_Z10.tcl, run with
+    DEV_MODE so it stops after project setup; project in prj/<name>/build/
+  - legacy (Vivado 2020.1): red_pitaya_vivado_project_Z10.tcl; project in
+    prj/<name>/project/
+The workspace copy is patched so the scripts run on any Vivado release and
+without a git checkout (see _patch_workspace).
 
 Flow (see data/docs/redpitaya_ps_pl_flow.md):
   rp_fetch_repo       -> download the RedPitaya-FPGA repo from GitHub (no git)
-  rp_setup_workspace  -> isolated copy of the repo
-  rp_list_projects    -> enumerate prj/* (v0.94, barebones, axi4lite, ...)
-  rp_build_project    -> run red_pitaya_vivado_project_Z10.tcl + synth/impl/bitstream
+  rp_setup_workspace  -> isolated, patched copy of the repo
+  rp_list_projects    -> enumerate prj/* (v0.94, barebones, logic, ...)
+  rp_build_project    -> project setup TCL + synth/impl/bitstream
   rp_create_custom_project -> clone a base project for custom PL logic
 
 Distinct from `create_redpitaya_project_rtl` (pure RTL, no PS) in tools/redpitaya.py.
@@ -18,6 +26,7 @@ Distinct from `create_redpitaya_project_rtl` (pure RTL, no PS) in tools/redpitay
 
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 import urllib.request
@@ -26,14 +35,14 @@ from pathlib import Path
 
 from mcp.types import Tool
 
-from ..parsers import truncate_response, verify_run_status
+from ..parsers import parse_timing_summary, truncate_response, verify_run_status
 from ._common import err, require_args, require_project_open
 from .redpitaya import write_cfgmem
 
 # Build/scratch dirs not worth copying into a workspace.
 _COPY_IGNORE = shutil.ignore_patterns(
     ".git", "__pycache__", "*.jou", "*.log", "*.str", "*.dmp",
-    "project", "out", ".Xil", "*.cache", "vivado_projects",
+    "project", "build", "out", "sdk", ".Xil", "*.cache", "vivado_projects",
 )
 
 TOOLS = [
@@ -76,8 +85,9 @@ TOOLS = [
         name="rp_setup_workspace",
         description=(
             "Copy a RedPitaya-FPGA repo into an isolated workspace so builds don't "
-            "touch the pristine checkout. Idempotent — pass force=true to recopy. "
-            "No Vivado session required."
+            "touch the pristine checkout. The copy is patched to run on the installed "
+            "Vivado release (block-design version check) and without git. "
+            "Idempotent — pass force=true to recopy. No Vivado session required."
         ),
         inputSchema={
             "type": "object",
@@ -102,7 +112,8 @@ TOOLS = [
         name="rp_list_projects",
         description=(
             "List projects under prj/ of a RedPitaya workspace or repo. Flags which "
-            "are Z10-capable (have ip/systemZ10.tcl). No Vivado session required."
+            "are Z10-capable (have ip/system.tcl or legacy ip/systemZ10.tcl). "
+            "No Vivado session required."
         ),
         inputSchema={
             "type": "object",
@@ -149,8 +160,8 @@ TOOLS = [
     Tool(
         name="rp_build_project",
         description=(
-            "Build a RedPitaya PS+PL project end-to-end: run the project-mode setup "
-            "TCL (creates the PS7 block design via systemZ10.tcl), then synthesis, "
+            "Build a RedPitaya PS+PL project end-to-end: run the repo's project setup "
+            "TCL (creates the PS7 block design from ip/system.tcl), then synthesis, "
             "implementation and write_bitstream, then generate the .bit.bin. Returns "
             "{stage, xpr_path, bit_path, bin_path, timing}. Requires start_session first."
         ),
@@ -194,7 +205,71 @@ def _default_workspace(repo_path: str) -> str:
 
 
 def _is_repo_root(path: Path) -> bool:
-    return (path / "prj").is_dir() and any(path.glob("red_pitaya_vivado_project_*.tcl"))
+    # Legacy (Vivado 2020.1 era): red_pitaya_vivado_project_Z10.tcl.
+    # Current upstream (Vivado 2025.1+): red_pitaya_vivado_Z10.tcl.
+    return (path / "prj").is_dir() and (
+        any(path.glob("red_pitaya_vivado_project_*.tcl"))
+        or any(path.glob("red_pitaya_vivado_Z*.tcl"))
+    )
+
+
+def _setup_script(ws: Path, model: str) -> tuple[Path, bool] | None:
+    """Return (setup TCL, is_legacy) for the given model, or None if absent.
+
+    Legacy repos ship a project-mode-only script. Current upstream ships one
+    script that builds everything; DEV_MODE makes it stop right after project
+    setup, which gives us the same hand-off point.
+    """
+    legacy = ws / f"red_pitaya_vivado_project_{model}.tcl"
+    if legacy.is_file():
+        return legacy, True
+    current = ws / f"red_pitaya_vivado_{model}.tcl"
+    if current.is_file():
+        return current, False
+    return None
+
+
+def _project_build_dir(prj_dir: Path) -> Path:
+    """Vivado project dir created by the setup script (legacy: project/, current: build/)."""
+    for name in ("build", "project"):
+        if (prj_dir / name / "redpitaya.xpr").is_file():
+            return prj_dir / name
+    return prj_dir / "build"
+
+
+# Workspace patches applied to the *copy* only, so the upstream scripts run on
+# any Vivado release and without a git checkout. Each entry: (glob, old, new).
+_BD_VERSION_RE = re.compile(r"^set scripts_vivado_version \S+$", re.MULTILINE)
+_GIT_HASH_LINE = 'set gith [exec git log -1 --format="%H"]'
+_GIT_HASH_SAFE = (
+    'if {[catch {exec git log -1 --format="%H"} gith]} '
+    '{ set gith [string repeat 0 40] }'
+)
+
+
+def _patch_workspace(ws: Path) -> list[str]:
+    """Make a RedPitaya workspace buildable on the running Vivado. Idempotent.
+
+    - write_bd_tcl / write_ip_tcl exports (prj/*/ip/*.tcl, ip/ip/*/*.tcl)
+      refuse to run on any Vivado but the one that wrote them
+      (`scripts_vivado_version 2025.1`); compare against the running version
+      instead. The IP VLNVs they need are still checked by the scripts.
+    - The build scripts stamp the git hash via `exec git log`, which fails in a
+      zip download / workspace copy; fall back to an all-zero hash.
+    """
+    patched = []
+    for f in sorted(ws.rglob("*.tcl")):
+        text = f.read_text(encoding="utf-8", errors="replace")
+        new = _BD_VERSION_RE.sub("set scripts_vivado_version [version -short]", text)
+        if new != text:
+            f.write_text(new, encoding="utf-8")
+            patched.append(str(f.relative_to(ws)))
+    for f in sorted(ws.glob("red_pitaya_vivado_*.tcl")):
+        text = f.read_text(encoding="utf-8", errors="replace")
+        if _GIT_HASH_LINE in text:
+            f.write_text(text.replace(_GIT_HASH_LINE, _GIT_HASH_SAFE), encoding="utf-8")
+            patched.append(str(f.relative_to(ws)))
+    return patched
 
 
 def _project_dirs(root: Path) -> list[Path]:
@@ -273,7 +348,7 @@ def _rp_fetch_repo(session, args):
     if not _is_repo_root(repo_root):
         return err(
             f"extracted tree at {repo_root} is not a RedPitaya repo root "
-            f"(missing prj/ or red_pitaya_vivado_project_*.tcl)",
+            f"(missing prj/ or red_pitaya_vivado_*.tcl)",
             extracted_to=str(repo_root),
         )
 
@@ -316,7 +391,7 @@ def _rp_setup_workspace(session, args):
     if not _is_repo_root(repo):
         return err(
             f"{repo} does not look like a RedPitaya-FPGA repo "
-            f"(missing prj/ or red_pitaya_vivado_project_*.tcl)"
+            f"(missing prj/ or red_pitaya_vivado_*.tcl)"
         )
 
     workspace = Path(args.get("workspace_path") or _default_workspace(str(repo)))
@@ -335,6 +410,7 @@ def _rp_setup_workspace(session, args):
 
     try:
         shutil.copytree(repo, workspace, ignore=_COPY_IGNORE)
+        patched = _patch_workspace(workspace)
     except OSError as ex:
         return err(f"copy failed: {ex}", workspace_path=str(workspace))
 
@@ -344,6 +420,7 @@ def _rp_setup_workspace(session, args):
         "status": "copied",
         "source_repo": str(repo),
         "projects": [p.name for p in _project_dirs(workspace)],
+        "patched_files": patched,
     }
 
 
@@ -356,12 +433,14 @@ def _rp_list_projects(session, args):
 
     projects = []
     for p in _project_dirs(root):
-        systemz10 = p / "ip" / "systemZ10.tcl"
+        # Legacy repos: per-model ip/systemZ10.tcl. Current upstream: one
+        # ip/system.tcl parametrised by the per-model build script.
+        z10_capable = (p / "ip" / "systemZ10.tcl").is_file() or (p / "ip" / "system.tcl").is_file()
         rtl_dir = p / "rtl"
         rtl_count = len(list(rtl_dir.glob("*.sv")) + list(rtl_dir.glob("*.v"))) if rtl_dir.is_dir() else 0
         projects.append({
             "name": p.name,
-            "z10_capable": systemz10.is_file(),
+            "z10_capable": z10_capable,
             "rtl_files": rtl_count,
             "has_ip_dir": (p / "ip").is_dir(),
         })
@@ -377,7 +456,7 @@ def _rp_workspace_info(session, args):
 
     projects = []
     for p in _project_dirs(ws):
-        bit = p / "project" / "redpitaya.runs" / "impl_1" / "red_pitaya_top.bit"
+        bit = _project_build_dir(p) / "redpitaya.runs" / "impl_1" / "red_pitaya_top.bit"
         projects.append({
             "name": p.name,
             "built": bit.is_file(),
@@ -426,7 +505,8 @@ def _rp_create_custom_project(session, args):
         "top_file": top,
         "message": (
             "Edit the top file / add RTL under rtl_dir, then call rp_build_project. "
-            "The PS7 block design stays intact (built from ip/systemZ10.tcl)."
+            "The PS7 block design stays intact (built from ip/system.tcl, or "
+            "ip/systemZ10.tcl in legacy repos)."
         ),
     }
 
@@ -452,9 +532,13 @@ def _rp_build_project(session, args):
     if not ws.is_dir():
         return err(f"workspace not found: {ws}")
 
-    setup_tcl = ws / f"red_pitaya_vivado_project_{model}.tcl"
-    if not setup_tcl.is_file():
-        return err(f"setup script not found: {setup_tcl}")
+    found = _setup_script(ws, model)
+    if found is None:
+        return err(
+            f"setup script not found in {ws} (expected red_pitaya_vivado_{model}.tcl "
+            f"or legacy red_pitaya_vivado_project_{model}.tcl)"
+        )
+    setup_tcl, legacy = found
     prj_dir = ws / "prj" / project
     if not prj_dir.is_dir():
         return err(
@@ -462,32 +546,40 @@ def _rp_build_project(session, args):
             available=[p.name for p in _project_dirs(ws)],
         )
 
+    # Workspaces made by older versions of this server are not patched yet.
+    _patch_workspace(ws)
+
     ws_posix = ws.resolve().as_posix()
 
     def _fail(stage, payload):
         return {"success": False, "stage": stage, **payload}
 
     # 1. Project setup — replicate the RedPitaya project-mode flow. The script
-    #    reads $argv and does `cd prj/$prj_name` itself, then sources systemZ10.tcl.
+    #    reads $argv and does `cd prj/$prj_name` itself, then sources the PS7
+    #    block design TCL. The current upstream script would go on to build
+    #    everything; the DEV_MODE argument makes it return right after setup.
     #    Close any previously-open project first: building two different projects
-    #    back-to-back in the same Vivado session causes systemZ10.tcl validation
+    #    back-to-back in the same Vivado session causes the BD validation
     #    to fail on stale PS7 state (CAN peripheral divisor out of range).
+    argv = f"{{{project}}} {{{defines}}}" + ("" if legacy else " DEV_MODE")
     setup_cmd = (
         f"foreach p [get_projects -quiet] {{ close_project -quiet }}; "
         f"cd {{{ws_posix}}}; "
-        f"set argv [list {{{project}}} {{{defines}}}]; "
-        f"set argc 2; "
-        f"source {{red_pitaya_vivado_project_{model}.tcl}}"
+        f"set argv [list {argv}]; "
+        f"set argc [llength $argv]; "
+        f"source {{{setup_tcl.name}}}"
     )
     r = session.run_tcl(setup_cmd, timeout_override=setup_timeout)
-    if not r.success:
+    build_dir = _project_build_dir(prj_dir)
+    if not r.success or not (build_dir / "redpitaya.xpr").is_file():
         return _fail("project_setup", {
             "error": r.output,
-            "hint": "systemZ10.tcl / project-mode setup failed",
+            "setup_script": setup_tcl.name,
+            "hint": "block design / project-mode setup failed",
         })
 
-    xpr_path = f"{prj_dir.resolve().as_posix()}/project/redpitaya.xpr"
-    runs_dir = f"{prj_dir.resolve().as_posix()}/project/redpitaya.runs"
+    xpr_path = f"{build_dir.resolve().as_posix()}/redpitaya.xpr"
+    runs_dir = f"{build_dir.resolve().as_posix()}/redpitaya.runs"
 
     # 1b. Apply canonical RedPitaya synth flags (project-mode setup TCL skips them;
     #     they're only in the non-project batch TCL). Required for QoR on heavy designs.
@@ -561,6 +653,9 @@ def _rp_build_project(session, args):
         "xpr_path": xpr_path,
         "bit_path": bit_path,
         "bin_path": bin_final,
+        # The raw report opens with ~2 KB of timer settings, so the truncated
+        # text alone rarely reaches the WNS/WHS table: return parsed values too.
+        "timing_summary": {k: v for k, v in parse_timing_summary(timing.output).items() if k != "raw"},
         "timing_summary_raw": truncate_response(timing.output, 2000),
         "deploy_hint": (
             f"deploy_to_redpitaya bit_bin_path={bin_final} host=<redpitaya-ip>"

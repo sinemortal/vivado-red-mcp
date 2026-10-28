@@ -12,7 +12,7 @@ from ..parsers import (
     parse_utilization,
     truncate_response,
 )
-from ._common import require_project_open
+from ._common import require_project_open, run_design_cmd
 
 TOOLS = [
     Tool(
@@ -127,10 +127,14 @@ def _get_timing_summary(session, args):
     if (e := require_project_open(session)):
         return e
     detail_level = args.get("detail_level", "summary")
-    r = session.run_tcl("report_timing_summary -no_header -return_string")
+    r = run_design_cmd(session, "report_timing_summary -no_header -return_string")
     parsed = parse_timing_summary(r.output)
     parsed["success"] = r.success
     parsed["elapsed_ms"] = r.elapsed_ms
+    if r.opened_run:
+        parsed["opened_run"] = r.opened_run
+    if not r.success:
+        parsed["error"] = r.output
     _apply_detail(parsed, "raw", detail_level)
     return parsed
 
@@ -157,7 +161,7 @@ def _get_timing_paths(session, args):
         cmd += f" -filter {{CLOCK == {clock}}}"
     cmd += " -return_string"
 
-    r = session.run_tcl(cmd)
+    r = run_design_cmd(session, cmd)
 
     response = {
         "success": r.success,
@@ -205,10 +209,14 @@ def _get_utilization(session, args):
         cmd += " -hierarchical"
         if module_filter:
             cmd += f" -hierarchical_pattern {{{module_filter}}}"
-    r = session.run_tcl(cmd)
+    r = run_design_cmd(session, cmd)
     parsed = parse_utilization(r.output)
     parsed["success"] = r.success
     parsed["elapsed_ms"] = r.elapsed_ms
+    if r.opened_run:
+        parsed["opened_run"] = r.opened_run
+    if not r.success:
+        parsed["error"] = r.output
 
     if threshold_percent is not None:
         for res in ["lut", "ff", "bram", "dsp", "io"]:
@@ -222,7 +230,7 @@ def _get_utilization(session, args):
 def _get_clocks(session, args):
     if (e := require_project_open(session)):
         return e
-    r = session.run_tcl("report_clocks -return_string")
+    r = run_design_cmd(session, "report_clocks -return_string")
     return {"success": r.success, "clocks": r.output, "elapsed_ms": r.elapsed_ms}
 
 
