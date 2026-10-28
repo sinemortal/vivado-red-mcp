@@ -71,6 +71,15 @@ Code sets it for its children, and with it Vivado cannot spawn the scripts it
 generates by bare name (xsim `compile.bat` → "Spawn failed: file not found").
 If Vivado exits during startup (e.g. no license), `start()` returns its output.
 
+Multi-line commands are sent to `run_tcl` as one line that base64-decodes and
+`eval`s the script inside `catch` (the console would otherwise drop the
+newlines on Windows); a begin marker separates output from the echo, and a
+caught error sets `success=False` deterministically.
+
+Report tools go through `tools/_common.py::run_design_cmd`: on "No open
+design" it opens the latest completed run (impl_1, else synth_1) and retries,
+so reports work right after `run_implementation` / `generate_bitstream`.
+
 Run status verification uses `verify_run_status()` in `parsers.py` — queries
 the run's `STATUS`/`PROGRESS` properties as ground truth instead of parsing
 launch output.

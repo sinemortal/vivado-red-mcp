@@ -18,7 +18,7 @@ from ..parsers import (
     truncate_response,
 )
 from ..reports import REPORTS_DIR, cache_report, ensure_reports_dir, generate_report_id
-from ._common import require_project_open
+from ._common import require_project_open, run_design_cmd
 
 TOOLS = [
     Tool(
@@ -66,7 +66,7 @@ def _run_with_file(session, kind: str, tcl_template: str, timeout: int = 300):
     rid = generate_report_id()
     out_file = REPORTS_DIR / f"{kind}_{rid}.txt"
     cmd = tcl_template.format(file=out_file)
-    r = session.run_tcl(cmd, timeout_override=timeout)
+    r = run_design_cmd(session, cmd, timeout=timeout)
     text = ""
     if out_file.exists():
         try:
